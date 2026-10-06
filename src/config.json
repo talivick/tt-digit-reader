@@ -17,10 +17,10 @@
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
-  "CLOCK_PERIOD": 20,
+  "CLOCK_PERIOD": 40,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.03,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
@@ -30,6 +30,12 @@
   "//": "If you need a custom clock configuration, read the following documentation first:",
   "//": "https://tinytapeout.com/faq/#how-can-i-map-an-additional-external-clock-to-one-of-the-gpios",
   "CLOCK_PORT": "clk",
+
+  "//": "Chip plan 9.5: Booth multipliers, the area strategy, the _1-cell override (src/no_synth.cells), and the teach ring's delay cells.",
+  "SYNTH_MUL_BOOTH": true,
+  "SYNTH_STRATEGY": "AREA 0",
+  "SYNTH_EXCLUDED_CELL_FILE": "dir::no_synth.cells",
+  "RSZ_DONT_TOUCH_RX": "\\.dly$",
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
