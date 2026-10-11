@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Thomas Livick
 //
 // array.sv : 2 by 2 weight-stationary systolic array of pe cells (N = 2 fixed).
-// Project: Digit reader, Tiny Tapeout SKY26d (top module tt_um_talivick_digit_reader).
+// Project: Digit reader on Tiny Tapeout SKY26d.
 //
 // Notes on module array
 //   A row sampled at edge e is on p_out after edge e + 2 while en stays 1.

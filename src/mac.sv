@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Thomas Livick
 //
 // mac.sv : multiply-accumulate cell with the addend taken from a port.
-// Project: Digit reader, Tiny Tapeout SKY26d (top module tt_um_talivick_digit_reader).
+// Project: Digit reader on Tiny Tapeout SKY26d.
 //
 // Notes on module mac
 //   No reset in this module.

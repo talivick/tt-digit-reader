@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Thomas Livick
 //
 // pe.sv : weight-stationary processing element: one held weight and one mac.
-// Project: Digit reader, Tiny Tapeout SKY26d (top module tt_um_talivick_digit_reader).
+// Project: Digit reader on Tiny Tapeout SKY26d.
 //
 // Notes on module pe
 //   Latency 1 clock. A weight loaded at edge e is used by activations sampled at edge e + 1
