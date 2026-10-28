@@ -10,7 +10,7 @@
 // The registers are write only: there is no register read, and the chip reports its state through the
 // responses of STATUS, MX_READ, DIG_READ, TP_READ and TCH_READ.
 // This package is listed first in the source lists. A module that decodes a command or a register
-// address takes its names with `import address_map::*;` above the module.
+// address writes each name in full, address_map::NAME, with no import statement.
 
 package address_map;
 

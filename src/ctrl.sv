@@ -16,7 +16,6 @@
 //   read of a counter follows its clear at the start of the run.
 
 `default_nettype none
-import address_map::*;
 
 module ctrl (
 	input  logic               clk,        //rising edge
@@ -54,13 +53,13 @@ logic [7:0] m; 												//M, the number of rows in one matrix run. The host w
 															//results, then ends with mx_done; m = 0 ends the run in LOAD, at once, with mx_done. Internal
 															//only, not a port 
 
-assign in_range = (reg_addr >= REG_MX_FIRST) && (reg_addr <= REG_MX_LAST);	//the address is one of ctrl's
+assign in_range = (reg_addr >= address_map::REG_MX_FIRST) && (reg_addr <= address_map::REG_MX_LAST);	//the address is one of ctrl's
 assign wr_ok = reg_we & in_range & (state == IDLE);							//write OK: a write to one of ctrl's addresses, in IDLE; 0 while busy, so a write while busy changes nothing here and sets mx_err below
 	
-assign mx_w_ld[0] = wr_ok & (reg_addr == REG_MX_W00);		//matrix weight load pulse, one bit per PE; no pulse while busy, since wr_ok = 0
-assign mx_w_ld[1] = wr_ok & (reg_addr == REG_MX_W01);
-assign mx_w_ld[2] = wr_ok & (reg_addr == REG_MX_W10);
-assign mx_w_ld[3] = wr_ok & (reg_addr == REG_MX_W11);
+assign mx_w_ld[0] = wr_ok & (reg_addr == address_map::REG_MX_W00);		//matrix weight load pulse, one bit per PE; no pulse while busy, since wr_ok = 0
+assign mx_w_ld[1] = wr_ok & (reg_addr == address_map::REG_MX_W01);
+assign mx_w_ld[2] = wr_ok & (reg_addr == address_map::REG_MX_W10);
+assign mx_w_ld[3] = wr_ok & (reg_addr == address_map::REG_MX_W11);
 
 assign mx_w = reg_wdata;									//matrix weight, the data of a weight write; a PE takes it only with its mx_w_ld bit at 1
 
@@ -69,36 +68,36 @@ assign mx_w = reg_wdata;									//matrix weight, the data of a weight write; a 
 always_ff @(posedge clk)
 	begin
 	//m
-	if(wr_ok & (reg_addr == REG_MX_M))			//rows per run, MX_M (0x10); m = 0 ends a run at once
+	if(wr_ok & (reg_addr == address_map::REG_MX_M))			//rows per run, MX_M (0x10); m = 0 ends a run at once
 		m 			<= reg_wdata;
 	
 	//scale
-	if(wr_ok & (reg_addr == REG_MX_SCALE_LO)) 	//the unsigned scale
+	if(wr_ok & (reg_addr == address_map::REG_MX_SCALE_LO)) 	//the unsigned scale
 		scale[7:0] 	<= reg_wdata;
-	if(wr_ok & (reg_addr == REG_MX_SCALE_HI))
+	if(wr_ok & (reg_addr == address_map::REG_MX_SCALE_HI))
 		scale[15:8] <= reg_wdata;
 	
 	//shift and ReLU
-	if(wr_ok & (reg_addr == REG_MX_SHIFT))		//S, the shift count (MX_SHIFT bits 4:0) 
+	if(wr_ok & (reg_addr == address_map::REG_MX_SHIFT))		//S, the shift count (MX_SHIFT bits 4:0) 
 		begin									//the ReLU enable relu = 1: requant turns a negative result into 0
 		shift 		<= reg_wdata[4:0];
 		relu 		<= reg_wdata[7];
 		end
 	
 	//bias0
-	if(wr_ok & (reg_addr == REG_MX_BIAS0_LO))	//the column 0 bias, 17-bit signed,two's complement
+	if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_LO))	//the column 0 bias, 17-bit signed,two's complement
 		bias0[7:0] <= reg_wdata;
-	if(wr_ok & (reg_addr == REG_MX_BIAS0_MID))
+	if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_MID))
 		bias0[15:8] <= reg_wdata;		
-	if(wr_ok & (reg_addr == REG_MX_BIAS0_HI))
+	if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_HI))
 		bias0[16] <= reg_wdata[0];
  
  	//bias1
-	if(wr_ok & (reg_addr == REG_MX_BIAS1_LO))	//the column 1 bias, 17-bit signed,two's complement
+	if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_LO))	//the column 1 bias, 17-bit signed,two's complement
 		bias1[7:0] <= reg_wdata;
-	if(wr_ok & (reg_addr == REG_MX_BIAS1_MID))
+	if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_MID))
 		bias1[15:8] <= reg_wdata;		
-	if(wr_ok & (reg_addr == REG_MX_BIAS1_HI))
+	if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_HI))
 		bias1[16] <= reg_wdata[0];
 	end
 
