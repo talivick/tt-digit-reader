@@ -1,0 +1,9 @@
+# Editor settings for this repository (https://editorconfig.org)
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+
+[Makefile]
+indent_style = tab
