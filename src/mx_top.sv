@@ -77,16 +77,16 @@ module mx_top (
 //teach mode or attract mode drives the array through the dp_ ports. When dp_sel is 0 the FIFO and
 //the REG_WR weight writes drive it. Teach mode also uses requant's adder through the ma_ ports.
 logic [15:0] a_in;      //the row going into the array: the oldest row in the FIFO, or dp_a when dp_sel is 1
-logic a_valid;          //1 when a_in holds a row: row_pop, or dp_a_valid when dp_sel is 1
-logic [3:0] w_ld;       //the array's weight load bits, one per PE: mx_w_ld from a REG_WR weight write, or dp_w_ld when dp_sel is 1
+logic        a_valid;   //1 when a_in holds a row: row_pop, or dp_a_valid when dp_sel is 1
+logic [3:0]  w_ld;      //the array's weight load bits, one per PE: mx_w_ld from a REG_WR weight write, or dp_w_ld when dp_sel is 1
 logic [31:0] w_in;      //the array's four weight bytes, one per PE: mx_w repeated four times, or dp_w when dp_sel is 1
-logic rq_v;             //1 while a finished row's sums wait at the array output during a matrix run (dp_sel is 0)
-logic en;               //the array's enable; every array register holds while it is 0. It goes to every register in the array, more loads than any other net in the chip
-logic rd_valid;         //1 while the FIFO holds at least one row
+logic        rq_v;      //1 while a finished row's sums wait at the array output during a matrix run (dp_sel is 0)
+logic        en;        //the array's enable; every array register holds while it is 0. It goes to every register in the array, more loads than any other net in the chip
+logic        rd_valid;  //1 while the FIFO holds at least one row
 logic [15:0] rd_data;   //the oldest row in the FIFO, {a1, a0}. It comes from a mux on the two entries, not from a register, so no read clock is needed
 logic [33:0] p_out;     //the array's two column sums {c1, c0}
-logic p_valid;          //1 while p_out holds a row's sums
-logic take;             //from requant: 1 for one clock when both columns of a row are done, so the array may advance to the next row
+logic        p_valid;   //1 while p_out holds a row's sums
+logic        take;      //from requant: 1 for one clock when both columns of a row are done, so the array may advance to the next row
 
 // the FIFO; fifo_count is the rows stored, 0 to 2, status S0 bits 7:5
 fifo  

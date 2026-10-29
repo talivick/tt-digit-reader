@@ -27,12 +27,12 @@ module fifo #(
 
 //registers
 logic [15:0] entry [1:0];
-logic wr_sel;
-logic rd_sel;
+logic        wr_sel;
+logic        rd_sel;
 
 //wires
-logic push;
-logic pop;
+logic        push;
+logic        pop;
 
 assign wr_ready = (count != 2'd2);  // not full
 assign push = wr_valid & wr_ready;  //a row enters this clock

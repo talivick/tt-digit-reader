@@ -48,20 +48,20 @@ module requant #(
 
 //Registers
 enum logic   [1:0]   {IDLE, MULT, SHFT, WR} state, next_state; //the state and its next value
-logic        [4:0]   step_cnt;   //clock count inside MULT (0 to 15) and SHFT (0 to shift - 1)
-logic                col_bit;    //column in work: 0 first, 1 second
-logic signed [17:0]  ph;         //product high bits [33:16] of {ph, pl}
-logic        [15:0]  pl;         //product low bits [15:0]; holds scale at the start, bit 0 is the current scale bit
-logic                r_bit;      //rounding bit: the last bit shifted out in SHFT
+logic        [4:0]  step_cnt;         //clock count inside MULT (0 to 15) and SHFT (0 to shift - 1)
+logic               col_bit;          //column in work: 0 first, 1 second
+logic signed [17:0] ph;               //product high bits [33:16] of {ph, pl}
+logic        [15:0] pl;               //product low bits [15:0]; holds scale at the start, bit 0 is the current scale bit
+logic               r_bit;            //rounding bit: the last bit shifted out in SHFT
 
 //Wires
-logic signed [16:0]  t1_a, t1_b; //the two operands of t1: sum and bias, or the modes' operand and addend
-logic signed [17:0]  t1;
-logic signed [18:0]  add_a, add_b, s; //the 19-bit adder: s = add_a + add_b
-logic signed [33:0]  q;          //the product after the shift, {ph, pl}
-logic signed [7:0]   y_pre;      //q clamped to -128..127, rounded
-logic        [7:0]   y_byte;     //y_pre after ReLU
-logic                start;      //a row starts: sums valid and the result register free
+logic signed [16:0] t1_a, t1_b;       //the two operands of t1: sum and bias, or the modes' operand and addend
+logic signed [17:0] t1;
+logic signed [18:0] add_a, add_b, s;  //the 19-bit adder: s = add_a + add_b
+logic signed [33:0] q;                //the product after the shift, {ph, pl}
+logic signed [7:0]  y_pre;            //q clamped to -128..127, rounded
+logic        [7:0]  y_byte;           //y_pre after ReLU
+logic               start;            //a row starts: sums valid and the result register free
 
 assign start = p_valid & (~y_valid | y_ready);
 assign s      = add_a + add_b;

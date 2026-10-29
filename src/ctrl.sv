@@ -44,11 +44,11 @@ module ctrl (
 //LOAD: one clock, loads nothing (the weights load at their own writes). STREAM: rows pop
 //into the array. DRAIN: waits for the last result.
 enum logic [1:0] {IDLE, LOAD, STREAM, DRAIN} state, next_state; 
-logic in_range;
-logic wr_ok;
+logic       in_range;
+logic       wr_ok;
 logic [7:0] row_count;
 logic [7:0] res_count;
-logic [7:0] m;                                              //M, the number of rows in one matrix run. The host writes it to MX_M (0x10) before MX_START,
+logic [7:0] m;          //M, the number of rows in one matrix run. The host writes it to MX_M (0x10) before MX_START,
                                                             //so it has no reset. The run streams m rows into the array and waits for m
                                                             //results, then ends with mx_done; m = 0 ends the run in LOAD, at once, with mx_done. Internal
                                                             //only, not a port 

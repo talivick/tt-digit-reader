@@ -98,35 +98,35 @@ localparam logic [7:0] DIG_START = 8'h30, IMG = 8'h31, TILE = 8'h32, DIG_ARGMAX 
 localparam logic [1:0] HS_IDLE = 2'd0, HS_PREP = 2'd1, HS_ACK = 2'd2;
 localparam logic [1:0] PHASE_CMD = 2'd0, PHASE_ARG = 2'd1, PHASE_RESP = 2'd2;
  
-logic armed;              //1 once in_valid_s has been 0 after a reset; no byte is taken before that
-logic [1:0] hs_state;     //HS_IDLE waits for a byte; HS_PREP is the clock after a take; HS_ACK holds in_ready at 1
-logic [1:0] phase;        //which byte of the transfer comes next: the command byte, an argument byte or a response byte
-logic [4:0] byte_idx;     //the argument or response byte being taken, 0 first; 5 bits for DIG_READ's 21 response bytes
-logic rst_seen;           //1 after a reset until STATUS supplies S1; S1 bit 7
-logic err_cmd;            //an unknown command byte, or a REG_WR to an address no block owns; S1 bit 0
-logic err_busy;           //a TILE taken during a matrix run and ignored; S1 bit 1
-logic err_ovf;            //a MX_ROW row arrived while mx_top could not take it (row_ready = 0); S1 bit 2
-logic v;                  //res_valid as MX_READ's first response byte saw it; bytes 2 and 3 and res_ready use this copy
-logic refused;            //the current transfer is a TILE taken during a matrix run; no arg_we and no go for its bytes
-logic held;               //the command byte must wait: the display or the walker is busy and it is not NOP, ID, STATUS or CLR_ERR
-logic take;               //1 in the clock a byte is taken from ui_in or a response byte is loaded
-logic [7:0] code;         //the command being decoded: ui_in for the command byte, afterwards the stored cmd
-logic known;              //code is a command this decoder knows; an unknown command byte sets err_cmd
-logic [4:0] arg_count;    //the number of argument bytes of code
-logic [4:0] resp_count;   //the number of response bytes of code
-logic last;               //1 when byte_idx is the last argument byte or the last response byte of code
-logic take_cmd;           //take split by phase: the command byte
-logic take_arg;           //an argument byte
-logic take_resp;          //a response byte
-logic mapped;             //the REG_WR address is one of ctrl's registers, 0x10 to 0x1D
-logic [7:0] s0;           //status byte 0
-logic [7:0] s1;           //status byte 1
-logic [7:0] s2;           //status byte 2
-logic [5:0] form_code;    //ID's second byte, bits 5:0: which blocks this build has
-logic [7:0] resp_mux;     //the response byte for code and byte_idx; loaded into resp_byte at the take
-logic refuse;             //the command byte on ui_in is a TILE and the matrix unit is busy
-logic [4:0] acc_pos;      //DIG_READ response byte n (1 to 20) gives n - 1: bits 4:1 the accumulator, bit 0 the low byte
-logic acc_wait;           //a DIG_READ accumulator byte waits for the accumulator ring to deliver the one asked for
+logic       armed;       //1 once in_valid_s has been 0 after a reset; no byte is taken before that
+logic [1:0] hs_state;    //HS_IDLE waits for a byte; HS_PREP is the clock after a take; HS_ACK holds in_ready at 1
+logic [1:0] phase;       //which byte of the transfer comes next: the command byte, an argument byte or a response byte
+logic [4:0] byte_idx;    //the argument or response byte being taken, 0 first; 5 bits for DIG_READ's 21 response bytes
+logic       rst_seen;    //1 after a reset until STATUS supplies S1; S1 bit 7
+logic       err_cmd;     //an unknown command byte, or a REG_WR to an address no block owns; S1 bit 0
+logic       err_busy;    //a TILE taken during a matrix run and ignored; S1 bit 1
+logic       err_ovf;     //a MX_ROW row arrived while mx_top could not take it (row_ready = 0); S1 bit 2
+logic       v;           //res_valid as MX_READ's first response byte saw it; bytes 2 and 3 and res_ready use this copy
+logic       refused;     //the current transfer is a TILE taken during a matrix run; no arg_we and no go for its bytes
+logic       held;        //the command byte must wait: the display or the walker is busy and it is not NOP, ID, STATUS or CLR_ERR
+logic       take;        //1 in the clock a byte is taken from ui_in or a response byte is loaded
+logic [7:0] code;        //the command being decoded: ui_in for the command byte, afterwards the stored cmd
+logic       known;       //code is a command this decoder knows; an unknown command byte sets err_cmd
+logic [4:0] arg_count;   //the number of argument bytes of code
+logic [4:0] resp_count;  //the number of response bytes of code
+logic       last;        //1 when byte_idx is the last argument byte or the last response byte of code
+logic       take_cmd;    //take split by phase: the command byte
+logic       take_arg;    //an argument byte
+logic       take_resp;   //a response byte
+logic       mapped;      //the REG_WR address is one of ctrl's registers, 0x10 to 0x1D
+logic [7:0] s0;          //status byte 0
+logic [7:0] s1;          //status byte 1
+logic [7:0] s2;          //status byte 2
+logic [5:0] form_code;   //ID's second byte, bits 5:0: which blocks this build has
+logic [7:0] resp_mux;    //the response byte for code and byte_idx; loaded into resp_byte at the take
+logic       refuse;      //the command byte on ui_in is a TILE and the matrix unit is busy
+logic [4:0] acc_pos;     //DIG_READ response byte n (1 to 20) gives n - 1: bits 4:1 the accumulator, bit 0 the low byte
+logic       acc_wait;    //a DIG_READ accumulator byte waits for the accumulator ring to deliver the one asked for
 
 //Taking a byte. A byte is taken when the handshake is idle, the decoder is armed, the host has raised
 //in_valid_s, and nothing holds the byte back. held keeps a command byte waiting while the display or the

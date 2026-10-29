@@ -23,15 +23,15 @@ module array (
 );
 
 
-logic [7:0] a1_skew;
-logic v1_skew;
-logic [7:0] a_00_01, a_10_11;
-logic v_00_01, v_10_11;
+logic [7:0]  a1_skew;
+logic        v1_skew;
+logic [7:0]  a_00_01, a_10_11;
+logic        v_00_01, v_10_11;
 logic [16:0] p_00_10, p_01_11, p_10, p_11, p0_deskew;
 
 //Unused nets for Verilator
-logic [7:0] unused_a_01, unused_a_11;
-logic unused_v_01;
+logic [7:0]  unused_a_01, unused_a_11;
+logic        unused_v_01;
 
 always_ff @(posedge clk or negedge rst_n) // Asynchronous clear; rst_n is synchronized by rst_sync (falls at once, rises on a clock edge).
     if(~rst_n)
