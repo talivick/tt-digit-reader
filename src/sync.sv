@@ -57,7 +57,7 @@ module sync2 #(
     input  logic  d,      //asynchronous input
     output logic  q       //the second flop
 );
-    
+
 (* ASYNC_REG = "TRUE" *) logic ff1;
 (* ASYNC_REG = "TRUE" *) logic ff2;
 
@@ -72,7 +72,7 @@ always_ff @(posedge clk or negedge rst_n)
         ff1     <= d;
         ff2     <= ff1;
         end
-        
+
 assign q = ff2;
 
 endmodule
