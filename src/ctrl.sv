@@ -1,19 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Thomas Livick
 //
-// ctrl.sv : matrix control: the configuration registers 0x10 to 0x1D, the run state machine, the status bits.
-// Project: Digit reader on Tiny Tapeout SKY26d.
+// ctrl.sv : the matrix control
 //
-// Notes on module ctrl
-//   Registers: M (8 bits), scale (16: 0x11 low byte, 0x1D high byte), shift (5) and ReLU
-//   (MX_SHIFT bits 4:0 and 7), bias0 and bias1 (17 each). Written only in IDLE.
-//   MX_W00 to MX_W11 have no register here: a write to 0x19 to 0x1C pulses mx_w_ld bit 0 to 3
-//   in its data clock with mx_w = reg_wdata.
-//   mx_busy = not IDLE. mx_start or a write to 0x10 to 0x1D while busy is ignored and sets mx_err;
-//   err_clr clears it.
-//   Resets: the state, mx_done and mx_err reset with rst_n (asynchronous). The counters and the
-//   configuration registers have none: the host writes the configuration before a run, and every
-//   read of a counter follows its clear at the start of the run.
+// Description
+//   Owns the matrix unit's register addresses, 0x10 to 0x1D, holds its configuration and
+//   controls each matrix run: after MX_START it lets M rows into the array and ends the
+//   run when the M-th result has left, with the status bits MX_BUSY, MX_DONE and MX_ERR.
+//
+// Operation
+//   REG_WR writes arrive on "reg_we", "reg_addr" and "reg_wdata": MX_M (0x10), the rows
+//   per run; the 16-bit unsigned scale, MX_SCALE_LO (0x11) and MX_SCALE_HI (0x1D);
+//   MX_SHIFT (0x12), S in bits 4:0 and ReLU in bit 7; the two 17-bit signed biases,
+//   0x13 to 0x18.
+//   MX_W00 to MX_W11 (0x19 to 0x1C) have no register here: a write pulses "mx_w_ld" bit
+//   0 to 3 with "mx_w" = "reg_wdata" in the clock of its "reg_we", and the weight goes
+//   straight into its PE.
+//   An "mx_start" pulse starts a run: "stream_en" is high until M rows have popped
+//   ("row_pop"), then the run waits for M results to pop ("res_pop") and sets
+//   "mx_done". M = 0 ends the run at once with "mx_done".
+//   "mx_busy" is high during a run. "mx_start" or a write to 0x10 to 0x1D during a run
+//   is ignored and sets "mx_err"; "err_clr" clears it.
+//
+// Reset
+//   "rst_n" is asynchronous and active low. It resets the run state to idle and
+//   "mx_done" and "mx_err" to 0. The configuration registers have no reset; the host
+//   writes them after every reset, before the first MX_START. The row and result
+//   counters have no reset and clear at every start.
 
 `default_nettype none
 
@@ -40,7 +53,7 @@ module ctrl (
     output logic               mx_err      //status: an error since the last err_clr
 );
 
-//The run's state. IDLE: waits for mx_start; the only state that takes register writes.
+//Run state machine: IDLE waits for mx_start and is the only state that takes register writes.
 //LOAD: one clock, loads nothing (the weights load at their own writes). STREAM: rows pop
 //into the array. DRAIN: waits for the last result.
 enum logic [1:0] {IDLE, LOAD, STREAM, DRAIN} state, next_state; 
@@ -63,7 +76,7 @@ assign mx_w_ld[3] = wr_ok & (reg_addr == address_map::REG_MX_W11);
 
 assign mx_w = reg_wdata;                                    //matrix weight, the data of a weight write; a PE takes it only with its mx_w_ld bit at 1
 
-//Register decoding (no reset): the host writes these before a run. scale and the biases are written
+//Control registers (no reset): the host writes these before a run. scale and the biases are written
 //a byte at a time at separate addresses; the bits a layout leaves unused are ignored.
 always_ff @(posedge clk)
     begin
@@ -107,7 +120,7 @@ always_ff @(posedge clk or negedge rst_n)
     else
         state   <= next_state;
         
-//Next state: the five transitions, numbered as in Diagram 5a, tested in this order
+//Next state: the five transitions, tested in this order
 always_comb
     case(state)
     IDLE:   begin if(mx_start)                              next_state = LOAD;  //1. a start

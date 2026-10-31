@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Thomas Livick
 //
-// mac.sv : multiply-accumulate cell with the addend taken from a port.
-// Project: Digit reader on Tiny Tapeout SKY26d.
+// mac.sv : the multiply-accumulate cell
 //
-// Notes on module mac
-//   No reset in this module.
-//   Latency 1 clock: inputs sampled at a rising edge are on c_out after that edge.
+// Description
+//   One INT8 multiply-accumulate cell whose addend comes from a port, so that a partial
+//   sum can move down a column of the array. "a" and "w" are 8-bit signed; "c_in" and
+//   "c_out" are 17-bit signed, enough for two products of up to 16,384 each.
+//
+// Operation
+//   At each rising edge with "en" high, "c_out" takes "c_in" + "a" * "w"; with "en" low
+//   it holds.
+//
+// Timing
+//   Latency 1 clock: inputs sampled at an edge are on "c_out" after that edge.
+//
+// Reset
+//   The cell has no reset and no "rst_n" port; each edge with "en" high writes "c_out".
 
 `default_nettype none
 

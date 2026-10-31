@@ -67,7 +67,7 @@ module mx_top (
     input  logic               ma_we,       //to requant
     input  logic               ma_clr,      //to requant
     input  logic               ma_pe,       //to requant
-    input  logic signed [16:0] ma_b,        //the modes' addend, to requant
+    input  logic signed [16:0] ma_b,        //the addend of teach mode or attract mode, to requant
     output logic signed [17:0] ma_q,        //PH, from requant
     output logic               ma_neg       //sign of the 19-bit sum, from requant
 );
@@ -88,7 +88,7 @@ logic [33:0] p_out;     //the array's two column sums {c1, c0}
 logic        p_valid;   //1 while p_out holds a row's sums
 logic        take;      //from requant: 1 for one clock when both columns of a row are done, so the array may advance to the next row
 
-// the FIFO; fifo_count is the rows stored, 0 to 2, status S0 bits 7:5
+//Row FIFO: fifo_count is the rows stored, 0 to 2, status S0 bits 7:5.
 fifo  
     #(.DEPTH    (2), 
       .WIDTH    (16)
@@ -104,13 +104,13 @@ fifo
       .count    (fifo_count)
     );
 
-// Four multiplexers choose the array's inputs
+//Input multiplexers: four multiplexers choose the array's inputs by dp_sel.
 assign a_in = dp_sel ? dp_a : rd_data;  //dp_sel = 1: the row from the dp_ port. dp_sel = 0: the oldest row in the FIFO
 assign a_valid = dp_sel ? dp_a_valid : row_pop;  //dp_sel = 0: the row is valid in the clock it leaves the FIFO
 assign w_ld = dp_sel ? dp_w_ld : mx_w_ld;        
 assign w_in = dp_sel ? dp_w : {mx_w, mx_w, mx_w, mx_w};  //a REG_WR weight write carries one byte. The byte goes to all four PE inputs and the w_ld bit selects the PE that loads it
 
-// The array, and the enable that stops it
+//Systolic array: the 2x2 array, with the enable that holds it.
 array i_array 
     (
     .clk,    
@@ -125,7 +125,7 @@ array i_array
     );
     
     
-//The three signals that control the flow of rows during a run.
+//Flow control: three signals control the flow of rows during a run.
 //rq_v: the array has finished a row and its sums wait at the output for requant.
 //en: the array runs when dp_sel is 1, when no sums wait, or in the clock requant takes them (take = 1).
 //Otherwise every array register holds and the sums stay at the output until requant has them.
@@ -136,8 +136,7 @@ assign en = dp_sel | ~rq_v | take;
 assign row_pop = stream_en & rd_valid & en & ~dp_sel;  //also the FIFO's rd_ready. In a clock with row_pop = 1 the oldest row leaves the FIFO and enters the array
 
 
-// requant turns the sums into the result
-//One requant unit serves both columns, one column after the other. Its result {y1, y0} is res_data.
+//Requantize unit: one unit serves both columns, one column after the other. Its result {y1, y0} is res_data.
 requant   
     #(.SCALE_W(16)
     )i_requant(                 
@@ -166,8 +165,7 @@ requant
     
 assign res_pop = res_valid & res_ready;  //a result leaves in a clock with res_valid = 1 and res_ready = 1. ctrl counts these pulses
 
-// The dp_ port's outputs
-//While dp_sel is 1 the sums go out on dp_p instead of into requant, because rq_v is 0 then.
+//dp_ port outputs: while dp_sel is 1 the sums go out on dp_p instead of into requant, because rq_v is 0 then.
 assign dp_p = p_out;                           
 assign dp_p_valid = p_valid & dp_sel;         
 

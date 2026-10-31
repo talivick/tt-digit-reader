@@ -1,12 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Thomas Livick
 //
-// fifo.sv : two-entry FIFO with the head shown without a read clock.
-// Project: Digit reader on Tiny Tapeout SKY26d.
+// fifo.sv : the row FIFO
 //
-// Notes on module fifo
-//   The storage has no reset. A push and a pop in the same clock are allowed.
-//   count is 2 bits, sized for DEPTH = 2.
+// Description
+//   A first-in first-out buffer of DEPTH entries of WIDTH bits that shows its head
+//   without a read clock. mx_top keeps the rows in it on their way into the array.
+//
+// Parameters
+//   DEPTH is the number of entries and WIDTH the bits per entry: 2 and 16 in the chip,
+//   where an entry is one row {a1, a0}. "count" is 2 bits, sized for DEPTH 2.
+//
+// Operation
+//   "wr_valid" high with "wr_ready" high pushes "wr_data" at the edge; "wr_ready" is
+//   low while the FIFO is full.
+//   The head is on "rd_data" while "rd_valid" is high; "rd_ready" high pops it at the
+//   edge. A push and a pop in the same clock are allowed.
+//   "count" is the number of entries held, 0 to 2.
+//
+// Reset
+//   "rst_n" is asynchronous and active low. It resets the pointers and "count", so the
+//   FIFO is empty. The storage has no reset; a push writes each entry before it is read.
 
 `default_nettype none
 

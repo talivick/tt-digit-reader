@@ -164,7 +164,7 @@ logic               ma_clr;
 logic               ma_pe;
 logic signed [16:0] ma_b;
 
-//The three synchronizers, all instances of sync2. i_rst_sync makes the chip's reset: its d is tied to 1 and it
+//Synchronizers: all three are instances of sync2. i_rst_sync makes the chip's reset: its d is tied to 1 and it
 //resets to 0, so rst_n_s falls at once when the pad's rst_n falls and rises on the second or third clock edge after
 //rst_n rises. Its two flops are the only ones the pad's rst_n reaches; every other flop with a reset takes rst_n_s,
 //the other two synchronizers included. i_sync_valid resets to 1, so a pin held high through a reset is not read as a
@@ -175,7 +175,7 @@ sync2 #(.RST_VAL (1'b1)) i_sync_valid (.clk, .rst_n(rst_n_s), .d(uio_in[7]), .q(
 
 sync2 #(.RST_VAL (1'b0)) i_sync_miso (.clk, .rst_n(rst_n_s), .d(uio_in[5]), .q(miso_s));
 
-//The command decoder. It runs the handshake with the host, splits each transfer into the command byte, its
+//Command decoder: it runs the handshake with the host, splits each transfer into the command byte, its
 //arguments and its responses, answers ID and STATUS itself, and drives the command bus and the register bus to
 //the blocks. The four parameters set which commands and registers it knows, and ID's second byte.
 cmd_dec #(
@@ -227,7 +227,7 @@ cmd_dec #(
     .tch_bias_ok       //TCH_READ: the bias word is at the ring's head
     );
 
-//The matrix control. It holds the matrix registers, counts the rows of a run and lets them stream into the
+//Matrix control: it holds the matrix registers, counts the rows of a run and lets them stream into the
 //array, and reports mx_busy, mx_done and mx_err.
 ctrl i_ctrl(
     .clk,                   //rising edge
@@ -252,7 +252,7 @@ ctrl i_ctrl(
     .mx_err                 //status: an error since the last err_clr
     );
 
-//The matrix unit: the row FIFO, the 2x2 array and the requant stage. Host rows enter through the FIFO. The digit
+//Matrix unit: the row FIFO, the 2x2 array and the requant stage. Host rows enter through the FIFO. The digit
 //reader, teach mode and attract mode enter through the dp_ port, and the two modes reach the requant stage
 //through the ma_ port.
 mx_top i_mx_top(
@@ -291,7 +291,7 @@ mx_top i_mx_top(
     .ma_neg                 //sign of the 19-bit sum, from requant
     );
 
-//The 7-segment readout. seg is the pattern on uo_out whenever no response is on it: a pattern the host wrote, or
+//7-segment readout: seg is the pattern on uo_out whenever no response is on it: a pattern the host wrote, or
 //the digit the argmax picked.
 seg7 i_seg7 (
     .clk,                   //rising edge
@@ -306,7 +306,7 @@ seg7 i_seg7 (
     .seg                    //registered {dp, g, f, e, d, c, b, a}, active high; reset 0x40
     );
 
-//The blocks not built. One if block per parameter. When a block is not built, the else block ties every net it
+//Optional blocks: one if block per parameter. When a block is not built, the else block ties every net it
 //would drive: the SPI lines to their idle levels, every other net to 0, so the rest of the chip sees no busy, no
 //valid and no request from it.
 generate
@@ -385,7 +385,7 @@ generate
   end
 endgenerate
 
-//The nets that join the blocks. disp_busy and walk_busy make the decoder hold its next command byte. The dp_ port
+//Top-level wiring: disp_busy and walk_busy make the decoder hold its next command byte. The dp_ port
 //and the ma_ port are shared: one block drives a port at a time and the others drive 0, so each OR passes the
 //active block's value. dp_a_valid is the tile walker's alone; teach mode and attract mode present no valid.
 assign disp_busy  = ds_busy | tp_busy | spi_busy;
@@ -401,7 +401,7 @@ assign ma_clr     = tch_ma_clr | att_ma_clr;
 assign ma_pe      = tch_ma_pe | att_ma_pe;
 assign ma_b       = tch_ma_b | att_ma_b;
 
-//The pins. uo_out carries the response while resp_oe is 1 and the 7-segment pattern otherwise. uio bits 5 and 7
+//Pins: uo_out carries the response while resp_oe is 1 and the 7-segment pattern otherwise. uio bits 5 and 7
 //are inputs; their output path reads 0.
 assign uo_out  = resp_oe ? resp_byte : seg;
 
@@ -409,7 +409,7 @@ assign uio_out = {1'b0, in_ready, 1'b0, cs_tp_n, cs_lcd_n, dc, mosi, sck};
 
 assign uio_oe  = 8'b0101_1111;
 
-//The inputs and outputs nothing reads in this form, gathered in one reduction as the template does, so the lint
+//Unused signals: the inputs and outputs nothing reads in this form, gathered in one reduction as the template does, so the lint
 //does not report them.
 wire unused = &{1'b0, ena, uio_in[6], uio_in[4:0], miso_s, arg_idx, dp_p, dp_p_valid, ma_q, ma_neg, dec_acc_req, dec_acc_idx};
 

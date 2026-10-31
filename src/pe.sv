@@ -1,13 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Thomas Livick
 //
-// pe.sv : weight-stationary processing element: one held weight and one mac.
-// Project: Digit reader on Tiny Tapeout SKY26d.
+// pe.sv : the processing element
 //
-// Notes on module pe
-//   Latency 1 clock. A weight loaded at edge e is used by activations sampled at edge e + 1
-//   or later; an activation sampled at the same edge as a load uses the old weight.
-//   en is the only gate on a_out, v_out and p_out; v_in gates nothing.
+// Description
+//   One weight-stationary processing element of the array: a held INT8 weight and one
+//   mac. The activation moves right one PE per clock and the partial sum moves down.
+//
+// Operation
+//   "w_ld" high loads "w_in" into the held weight at the edge, whatever "en" is.
+//   At each edge with "en" high, "a_out" and "v_out" take "a_in" and "v_in", and "p_out"
+//   takes "p_in" + "a_in" * weight. "v_in" travels with the data and gates nothing.
+//
+// Timing
+//   Latency 1 clock. A weight loaded at edge e is used by activations sampled at edge
+//   e + 1 or later; an activation sampled at the same edge as a load uses the old weight.
+//
+// Reset
+//   "rst_n" is asynchronous and active low and resets "v_out" to 0 only. The weight,
+//   "a_out" and "p_out" have no reset; "w_ld" loads the weight before use.
 
 `default_nettype none
 
@@ -37,7 +48,7 @@ always_ff @(posedge clk)
     end
     
 
-always_ff @(posedge clk or negedge rst_n) // Asynchronous clear; rst_n is synchronized by rst_sync (falls at once, rises on a clock edge).
+always_ff @(posedge clk or negedge rst_n) //asynchronous clear; rst_n comes from the top's reset synchronizer, so it falls at once and rises on a clock edge
     if(~rst_n)  
         v_out <= 'sd0;
     else if(en)

@@ -48,12 +48,12 @@ logic [7:0] digit;     //the winner's 7-segment pattern, from the table below
 logic [7:0] win_pat;   //the digit while win_valid is 1, else every segment off
 logic [7:0] seg_next;  //what seg loads at the next edge: win_pat in winner mode, seg_pat in pattern mode
 
-//The two strobes from the command bus. SEG_SHOW has one argument byte, so its arg_we and its go come in
+//Command strobes: SEG_SHOW has one argument byte, so its arg_we and its go come in
 //the same clock; the pattern is taken with arg_we. SEG_WINNER has no argument, so its go marks it.
 assign seg_show = arg_we & (cmd == address_map::CMD_SEG_SHOW);
 assign seg_win = (go & (cmd == address_map::CMD_SEG_WINNER)) | am_done;
 
-//The pattern register and the mode. SEG_SHOW writes the pattern and selects pattern mode in the same
+//Pattern register and mode: SEG_SHOW writes the pattern and selects pattern mode in the same
 //clock. When seg_show and seg_win arrive in one clock, seg_show wins.
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
@@ -72,7 +72,8 @@ always_ff @(posedge clk or negedge rst_n)
             seg_mode    <= 1'b1;
         end
 
-//The digit table of chip plan 7.1, {dp, g, f, e, d, c, b, a}, active high; dp stays 0. Winner values
+//Digit table: the segment pattern of each digit 0 to 9 as {dp, g, f, e, d, c, b, a}, active high; dp stays 0.
+//Winner values
 //10 to 15 do not occur and show nothing.
 always_comb
     case(winner)
@@ -91,7 +92,7 @@ always_comb
     
 assign win_pat = win_valid ? digit : 8'h00;
 
-//The output register. seg loads at every edge, so a change of the pattern, the mode, the winner or
+//Output register: seg loads at every edge, so a change of the pattern, the mode, the winner or
 //win_valid reaches the pins one edge later.
 assign seg_next = seg_mode ? win_pat : seg_pat;
 always_ff @(posedge clk or negedge rst_n)

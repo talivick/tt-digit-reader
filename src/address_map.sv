@@ -1,16 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Thomas Livick
 //
-// address_map.sv : the command codes, the register addresses and the status bits of the digit reader.
-// Project: Digit reader on Tiny Tapeout SKY26d.
+// address_map.sv : the command codes, register addresses and status bits
 //
-// A transfer is one command byte, then the command's argument bytes, then its response bytes.
-// CMD_ names a command code, REG_ a register address (the first argument byte of REG_WR). The two
-// numberings are independent: 0x10 is SEG_SHOW as a command and MX_M as a register.
-// The registers are write only: there is no register read, and the chip reports its state through the
-// responses of STATUS, MX_READ, DIG_READ, TP_READ and TCH_READ.
-// This package is listed first in the source lists. A module that decodes a command or a register
-// address writes each name in full, address_map::NAME, with no import statement.
+// Description
+//   A package of constants shared by the blocks: the command codes (CMD_ names), the
+//   register addresses written with REG_WR (REG_ names, with the first and last address
+//   of each block's range), ID's first byte, and the bit positions in the status bytes
+//   S0, S1 and S2. The two numberings are independent: 0x10 is SEG_SHOW as a command
+//   and MX_M as a register.
+//
+// Operation
+//   A transfer is one command byte, then the command's argument bytes, then its response
+//   bytes; REG_WR's first argument byte is the register address.
+//   A module that decodes a command or a register address writes each name in full,
+//   address_map::NAME, with no import statement.
+//   The registers are write only: no command reads a register back. The status bits are
+//   read through STATUS, which returns S0, S1 and S2.
+//
+// Reset
+//   The package holds constants and has no reset. Of the registers it names, the screen
+//   and SPI registers 0x00 to 0x05 and the teach registers 0x1E to 0x20 have reset
+//   values; the matrix registers 0x10 to 0x1D have none, and the host writes them after
+//   every reset, before the first MX_START.
 
 package address_map;
 
