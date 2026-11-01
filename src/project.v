@@ -124,6 +124,36 @@ logic               acc_ack;
 logic        [3:0]  winner;
 logic               win_valid;
 logic               am_done;
+// the digit path's inner nets (dp_img, dp_walk, dp_acc) and the muxed ring requests
+logic               walk_pair_req;
+logic        [4:0]  walk_pair_idx;
+logic               walk_acc_req;
+logic        [3:0]  walk_acc_idx;
+logic        [3:0]  pair;
+logic               pair_ack;
+logic               acc_add;
+logic signed [11:0] acc_add_val;
+logic        [7:0]  img_head0;
+logic        [7:0]  img_head8;
+logic               img_at0;
+logic               pair_req;
+logic        [4:0]  pair_idx;
+logic               acc_req;
+logic        [3:0]  acc_idx;
+// the display's requests into the two rings (disp_seq): tied in without_display
+logic               disp_pair_req;
+logic        [4:0]  disp_pair_idx;
+logic               disp_acc_req;
+logic        [3:0]  disp_acc_idx;
+// teach mode's drive of the image ring (teach): tied in without_teach
+logic               img_seek0;
+logic               img_step;
+// attract mode's drive of the image ring (attract): tied in without_attract
+logic               img_split;
+logic               img_en_a;
+logic        [7:0]  img_tail_a;
+logic               img_en_b;
+logic        [7:0]  img_tail_b;
 // teach mode's nets (teach): tied in without_teach
 logic               t_busy;
 logic               tch_sel;
@@ -314,21 +344,95 @@ generate
   begin: with_display
   end
   else
-  begin: without_display
-      assign sck      = 1'b0;
-      assign mosi     = 1'b0;
-      assign dc       = 1'b1;
-      assign cs_lcd_n = 1'b1;
-      assign cs_tp_n  = 1'b1;
-      assign ds_busy  = 1'b0;
-      assign tp_busy  = 1'b0;
-      assign spi_busy = 1'b0;
-      assign tp_value = 12'd0;
-      assign tp_valid = 1'b0;
-  end
+    begin: without_display
+    assign sck      = 1'b0;
+    assign mosi     = 1'b0;
+    assign dc       = 1'b1;
+    assign cs_lcd_n = 1'b1;
+    assign cs_tp_n  = 1'b1;
+    assign ds_busy  = 1'b0;
+    assign tp_busy  = 1'b0;
+    assign spi_busy = 1'b0;
+    assign tp_value = 12'd0;
+    assign tp_valid = 1'b0;
+    assign disp_pair_req = 1'b0;
+    assign disp_pair_idx = 5'd0;
+    assign disp_acc_req  = 1'b0;
+    assign disp_acc_idx  = 4'd0;
+    end
 
   if(HAS_DIGIT)
-  begin: with_digit
+    begin: with_digit
+    //Digit path: the image ring, the tile walker and the accumulator ring. The walker reads the image ring and
+    //adds into the accumulator ring; the decoder reads the accumulator ring for DIG_READ. Their requests into
+    //the two rings are chosen in the top-level wiring.
+    dp_img i_dp_img(
+        .clk,            //rising edge
+        .rst_n(rst_n_s), //asynchronous, active low; resets ipos only
+        .cmd,            //the command byte; IMG bytes
+        .arg_we,         //pulse: an argument byte is on arg_byte
+        .arg_byte,       //the argument byte
+        .pair_req,       //read request for pair pair_idx
+        .pair_idx,       //i: the pair {code(2i+1), code(2i)}
+        .pair,           //the pair
+        .pair_ack,       //1 while the pair's byte is at the head and pair_req = 1
+        .img_seek0,      //teach: move byte 0 to the head
+        .img_step,       //teach: step one byte
+        .img_split,      //attract: two 8-byte rings, bytes 0 to 7 (A) and 8 to 15 (B)
+        .img_en_a,       //attract: shift ring A (bytes 0 to 7)
+        .img_tail_a,     //what ring A's tail takes
+        .img_en_b,       //attract: shift ring B (bytes 8 to 15)
+        .img_tail_b,     //what ring B's tail takes
+        .img_head0,      //ring[0], the head
+        .img_head8,      //ring[8]
+        .img_at0         //the head is byte 0
+        );
+
+    dp_walk i_dp_walk(
+        .clk,            //rising edge
+        .rst_n(rst_n_s), //asynchronous, active low; resets the walker's state (DIG_START's go clears i and j)
+        .cmd,            //the command byte; TILE bytes and go; DIG_START's go clears i and j
+        .arg_we,         //pulse: an argument byte is on arg_byte
+        .arg_idx,        //the argument's index, 0 first
+        .arg_byte,       //the argument byte
+        .go,             //pulse: the command is complete, after its last argument
+        .walk_pair_req,  //request for pair i
+        .walk_pair_idx,  //i
+        .pair,           //the pair, from dp_img
+        .pair_ack,       //the pair is the one requested
+        .walk_acc_req,   //request for accumulator 2j
+        .walk_acc_idx,   //2j
+        .acc_ack,        //from dp_acc
+        .wk_sel,         //owns the array's dp_ port
+        .wk_w_ld,        //weight load bits into the array
+        .wk_w,           //the weights into the array
+        .wk_a,           //one row into the array
+        .wk_a_valid,     //valid of wk_a
+        .dp_p,           //column sums
+        .dp_p_valid,     //valid of dp_p
+        .acc_add,        //pulse: one add-and-step of the accumulator ring
+        .acc_add_val,    //the value added
+        .wk_busy         //tile in progress
+        );
+
+    dp_acc i_dp_acc(
+        .clk,            //rising edge
+        .rst_n(rst_n_s), //asynchronous, active low; resets apos, win_valid, am_busy and the argmax state
+        .cmd,            //the command byte; DIG_START biases and go (clears WIN_VALID); DIG_ARGMAX go
+        .arg_we,         //pulse: an argument byte is on arg_byte
+        .arg_byte,       //the argument byte
+        .go,             //pulse: the command is complete, after its last argument
+        .acc_req,        //read request for accumulator acc_idx
+        .acc_idx,        //k, the accumulator requested
+        .acc_val,        //the head
+        .acc_ack,        //1 while accumulator acc_idx is at the head and acc_req = 1
+        .acc_add,        //add-and-step pulse, from dp_walk
+        .acc_add_val,    //the value added
+        .winner,         //the argmax result
+        .win_valid,      //valid of winner
+        .am_done,        //pulses at the end of an argmax
+        .am_busy         //argmax in progress
+        );
   end
   else
   begin: without_digit
@@ -344,6 +448,17 @@ generate
       assign winner     = 4'd0;
       assign win_valid  = 1'b0;
       assign am_done    = 1'b0;
+      assign walk_pair_req = 1'b0;
+      assign walk_pair_idx = 5'd0;
+      assign walk_acc_req  = 1'b0;
+      assign walk_acc_idx  = 4'd0;
+      assign pair          = 4'd0;
+      assign pair_ack      = 1'b0;
+      assign acc_add       = 1'b0;
+      assign acc_add_val   = 12'd0;
+      assign img_head0     = 8'd0;
+      assign img_head8     = 8'd0;
+      assign img_at0       = 1'b0;
   end
 
   if(HAS_TEACH)
@@ -365,6 +480,8 @@ generate
       assign tch_learned = 1'b0;
       assign tch_bias    = 8'd0;
       assign tch_bias_ok = 1'b0;
+      assign img_seek0   = 1'b0;
+      assign img_step    = 1'b0;
   end
 
   if(HAS_ATTRACT)
@@ -382,7 +499,13 @@ generate
       assign att_ma_clr = 1'b0;
       assign att_ma_pe  = 1'b0;
       assign att_ma_b   = 17'd0;
+      assign img_split  = 1'b0;
+      assign img_en_a   = 1'b0;
+      assign img_tail_a = 8'd0;
+      assign img_en_b   = 1'b0;
+      assign img_tail_b = 8'd0;
   end
+
 endgenerate
 
 //Top-level wiring: disp_busy and walk_busy make the decoder hold its next command byte. The dp_ port
@@ -395,6 +518,14 @@ assign dp_w_ld    = wk_w_ld | tch_w_ld | att_w_ld;
 assign dp_w       = wk_w | tch_w | att_w;
 assign dp_a       = wk_a | tch_a | att_a;
 assign dp_a_valid = wk_a_valid;
+
+//Ring requests: the image ring has two readers, the walker and the display, and the accumulator ring three, the
+//walker, the display and the decoder. The walker's request wins while it runs, then the display's while it
+//runs, then the decoder's.
+assign pair_req   = wk_busy ? walk_pair_req : disp_pair_req;
+assign pair_idx   = wk_busy ? walk_pair_idx : disp_pair_idx;
+assign acc_req    = wk_busy ? walk_acc_req : (disp_busy ? disp_acc_req : dec_acc_req);
+assign acc_idx    = wk_busy ? walk_acc_idx : (disp_busy ? disp_acc_idx : dec_acc_idx);
 assign ma_sel     = tch_ma_sel | att_ma_sel;
 assign ma_we      = tch_ma_we | att_ma_we;
 assign ma_clr     = tch_ma_clr | att_ma_clr;
@@ -411,7 +542,9 @@ assign uio_oe  = 8'b0101_1111;
 
 //Unused signals: the inputs and outputs nothing reads in this form, gathered in one reduction as the template does, so the lint
 //does not report them.
-wire unused = &{1'b0, ena, uio_in[6], uio_in[4:0], miso_s, arg_idx, dp_p, dp_p_valid, ma_q, ma_neg, dec_acc_req, dec_acc_idx};
+wire unused = &{1'b0, ena, uio_in[6], uio_in[4:0], miso_s, arg_idx, dp_p, dp_p_valid, ma_q, ma_neg, dec_acc_req, dec_acc_idx,
+                img_head0, img_head8, img_at0, pair_req, pair_idx, acc_req, acc_idx, pair, pair_ack, acc_add, acc_add_val,
+                img_seek0, img_step, img_split, img_en_a, img_tail_a, img_en_b, img_tail_b};
 
 
 endmodule
