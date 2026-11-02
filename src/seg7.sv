@@ -73,8 +73,7 @@ always_ff @(posedge clk or negedge rst_n)
         end
 
 //Digit table: the segment pattern of each digit 0 to 9 as {dp, g, f, e, d, c, b, a}, active high; dp stays 0.
-//Winner values
-//10 to 15 do not occur and show nothing.
+//Winner values 10 to 15 do not occur and show nothing.
 always_comb
     case(winner)
     4'd0: digit = 8'h3F;

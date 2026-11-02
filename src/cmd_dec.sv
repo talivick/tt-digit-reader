@@ -15,8 +15,9 @@
 //   HAS_DIGIT alone.
 //
 // Operation
-//   A byte is taken while "in_valid_s" is high, once it has been low after reset; a read
-//   puts the response on "resp_byte" with "resp_oe" high.
+//   A byte is taken while "in_valid_s" is high and ARMED is 1; ARMED is the flag that
+//   sets once "in_valid_s" has been low after reset. A read puts the response on
+//   "resp_byte" with "resp_oe" high.
 //   Argument byte k pulses "arg_we" with "arg_idx" = k and "arg_byte"; "go" pulses after
 //   the last argument, or after the command byte when there is none. REG_WR to a mapped
 //   address pulses "reg_we", MX_START "mx_start", CLR_ERR "err_clr", MX_READ "res_ready"
@@ -37,7 +38,7 @@
 `default_nettype none
 
 module cmd_dec #(
-    parameter bit HAS_DIGIT = 1'b1, //digit path present (sets the form code in ID); parameter bit: one bit in ID's byte
+    parameter bit HAS_DIGIT = 1'b1, //digit path present; with HAS_DISPLAY it sets the 6-bit form code in ID's second byte
     parameter bit HAS_DISPLAY = 1'b1,   //display path present
     parameter bit HAS_TEACH = 1'b1, //teach mode present (ID bit 7)
     parameter bit HAS_ATTRACT = 1'b0    //attract mode present (ID bit 6); 0 in this chip
@@ -82,7 +83,7 @@ module cmd_dec #(
     input  logic signed [15:0] tch_score,    //TCH_READ: the score
     input  logic               tch_learned,  //TCH_READ: LEARNED
     input  logic signed [7:0]  tch_bias,     //TCH_READ: the bias word
-    input  logic               tch_bias_ok   //TCH_READ: the bias word is at the ring's head
+    input  logic               tch_bias_ok   //TCH_READ: the bias word is at the teach ring's head
 );
 
 //Command codes: the commands this decoder knows, with the values of address_map.sv's CMD_ names.
@@ -106,7 +107,7 @@ logic       rst_seen;    //1 after a reset until STATUS supplies S1; S1 bit 7
 logic       err_cmd;     //an unknown command byte, or a REG_WR to an address no block owns; S1 bit 0
 logic       err_busy;    //a TILE taken during a matrix run and ignored; S1 bit 1
 logic       err_ovf;     //a MX_ROW row arrived while mx_top could not take it (row_ready = 0); S1 bit 2
-logic       v;           //res_valid as MX_READ's first response byte saw it; bytes 2 and 3 and res_ready use this copy
+logic       v;           //the copy of res_valid taken when MX_READ's first response byte is loaded; bytes 2 and 3 and res_ready use it
 logic       refused;     //the current transfer is a TILE taken during a matrix run; no arg_we and no go for its bytes
 logic       held;        //the command byte must wait: the display or the walker is busy and it is not NOP, ID, STATUS or CLR_ERR
 logic       take;        //1 in the clock a byte is taken from ui_in or a response byte is loaded
@@ -360,15 +361,16 @@ always_ff @(posedge clk or negedge rst_n)
         end
         
 //Status bytes: the three bytes STATUS returns.
-//S0: bit 7 is 0, bits 6:5 the FIFO count, bit 4 res_valid, 3 mx_done, 2 mx_busy, 1 walk_busy, 0 disp_busy.
+//S0: bits 7:5 the FIFO count, 0 to 2 (bit 7 stays 0), bit 4 res_valid, 3 mx_done, 2 mx_busy, 1 walk_busy, 0 disp_busy.
 //S1: bit 7 rst_seen, bits 6:4 are 0, bit 3 mx_err, 2 err_ovf, 1 err_busy, 0 err_cmd.
 //S2: bit 7 win_valid, bits 6:4 are 0, bits 3:0 the winner.
 assign s0 = {1'b0, fifo_count, res_valid, mx_done, mx_busy, walk_busy, disp_busy};
 assign s1 = {rst_seen, 3'b000, mx_err, err_ovf, err_busy, err_cmd};
 assign s2 = {win_valid, 3'b000, winner};
 
-//MX_READ's first byte reports res_valid. The copy decides what the next two bytes carry and whether the
-//result is popped, so a result arriving between the bytes does not change the answer part way through.
+//v: the copy of res_valid that MX_READ's first response byte reports, taken in the clock that byte is loaded.
+//What the next two bytes carry and whether the result is popped follow v, so a result arriving between the
+//bytes does not change the answer part way through.
 always_ff @(posedge clk)
     if(take_resp & (code == MX_READ) & (byte_idx == 5'd0))
         v       <= res_valid;

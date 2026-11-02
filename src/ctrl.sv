@@ -62,9 +62,7 @@ logic       wr_ok;
 logic [7:0] row_count;
 logic [7:0] res_count;
 logic [7:0] m;          //M, the number of rows in one matrix run. The host writes it to MX_M (0x10) before MX_START,
-                                                            //so it has no reset. The run streams m rows into the array and waits for m
-                                                            //results, then ends with mx_done; m = 0 ends the run in LOAD, at once, with mx_done. Internal
-                                                            //only, not a port 
+                        //so it has no reset. m = 0 ends the run in LOAD, at once, with mx_done.
 
 assign in_range = (reg_addr >= address_map::REG_MX_FIRST) && (reg_addr <= address_map::REG_MX_LAST);    //the address is one of ctrl's
 assign wr_ok = reg_we & in_range & (state == IDLE);                         //write OK: a write to one of ctrl's addresses, in IDLE; 0 while busy, so a write while busy changes nothing here and sets mx_err below
@@ -98,7 +96,7 @@ always_ff @(posedge clk)
         end
     
     //bias0
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_LO))  //the column 0 bias, 17-bit signed,two's complement
+    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_LO))  //the column 0 bias, 17-bit signed, two's complement
         bias0[7:0] <= reg_wdata;
     if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_MID))
         bias0[15:8] <= reg_wdata;       
@@ -106,7 +104,7 @@ always_ff @(posedge clk)
         bias0[16] <= reg_wdata[0];
  
     //bias1
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_LO))  //the column 1 bias, 17-bit signed,two's complement
+    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_LO))  //the column 1 bias, 17-bit signed, two's complement
         bias1[7:0] <= reg_wdata;
     if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_MID))
         bias1[15:8] <= reg_wdata;       

@@ -89,13 +89,14 @@ always_ff @(posedge clk)
         pair_reg    <= pair;
 
 //Row: the two codes of the pair go into the array as one row, pixel 2i in the low byte and pixel 2i + 1 in the
-//high byte, each zero-extended, with the valid high for the one clock of ROW.
+//high byte, each zero-extended from 2 bits to 8, with the valid high for the one clock of ROW.
 assign wk_a         = (state == ROW) ? {6'b0, pair_reg[3:2], 6'b0, pair_reg[1:0]} : 16'd0;
 assign wk_a_valid   = (state == ROW);
 
 //Accumulator adds: when the column sums come out of the array, class 2j's sum goes to the accumulator ring at
-//once and class 2j + 1's is kept for one clock and goes next. The low 12 bits of each 17-bit sum are its whole
-//value: a sum of two products of a 2-bit code and a 4-bit weight lies between -48 and 42.
+//once and class 2j + 1's is kept for one clock and goes next. The low 12 bits of each 17-bit signed sum are its
+//whole value: a sum of two products of a 2-bit unsigned code, 0 to 3, and a 4-bit signed weight, -8 to 7, lies
+//between -48 and 42.
 assign add1 = (state == WAIT) & dp_p_valid;
 always_ff @(posedge clk)
     if(add1)

@@ -48,7 +48,7 @@ logic        rd_sel;
 logic        push;
 logic        pop;
 
-assign wr_ready = (count != 2'd2);  // not full
+assign wr_ready = (count != 2'd2);  //not full
 assign push = wr_valid & wr_ready;  //a row enters this clock
 
 always_ff @(posedge clk or negedge rst_n)
@@ -80,7 +80,7 @@ always_ff @(posedge clk or negedge rst_n)
 always_ff @(posedge clk)
     begin
     if(push)
-        entry[wr_sel] <= wr_data; //no reset  the two rows
+        entry[wr_sel] <= wr_data; //the two rows; no reset
     end
     
 assign rd_data = entry[rd_sel];     //the head; a mux, not a register: no read clock 

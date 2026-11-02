@@ -13,6 +13,9 @@
 // Operation
 //   A transfer is one command byte, then the command's argument bytes, then its response
 //   bytes; REG_WR's first argument byte is the register address.
+//   ID's response is 0x44, then {teach present, attract present, 6-bit form code}; the form
+//   code says which of the digit reader and the display are built: 1 both, 2 neither, 3 the
+//   display alone, 4 the digit reader alone.
 //   A module that decodes a command or a register address writes each name in full,
 //   address_map::NAME, with no import statement.
 //   The registers are write only: no command reads a register back. The status bits are
@@ -73,7 +76,7 @@ localparam logic [7:0] REG_DISP_FIRST  = 8'h00;
 localparam logic [7:0] REG_DISP_LAST   = 8'h03;
 // SPI bus (spi_master)
 localparam logic [7:0] REG_SCKDIV      = 8'h04; // reset 0x71: SPI half period in clocks minus 1; [3:0] for the LCD, [7:4] for the touch
-localparam logic [7:0] REG_GUARD       = 8'h05; // reset 0x4F: idle gap when the bus changes device, in steps of 64 clocks (0x4F = 202 us)
+localparam logic [7:0] REG_GUARD       = 8'h05; // reset 0x4F: idle gap when the bus changes device, in steps of 64 clocks (0x4F = 79 steps = 202.24 us at 25 MHz)
 localparam logic [7:0] REG_SPI_FIRST   = 8'h04;
 localparam logic [7:0] REG_SPI_LAST    = 8'h05;
 // matrix unit settings (ctrl); no reset, written before a run

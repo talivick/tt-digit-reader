@@ -8,8 +8,9 @@
 #   This test speaks to it as the host does: one byte per four-phase handshake on ui_in, in_valid on
 #   uio_in bit 7, in_ready on uio_out bit 6, and uo_out read while the byte is a response. It checks
 #   the levels of the three output ports in reset and after it, then ID, then STATUS twice, so the
-#   handshake, the framing, the form code and the reset-seen bit are each seen once. Everything else
-#   the chip does is covered by the tests that stay out of this repository.
+#   handshake, the framing, the form code and the reset-seen bit are each seen once; the form code, in
+#   ID's second byte, says which of the digit reader and the display are built. Everything else the
+#   chip does is covered by the tests that stay out of this repository.
 #
 # Operation
 #   The clock runs at 25 MHz, a 40 ns period. Inputs change on the falling edge of clk and outputs are

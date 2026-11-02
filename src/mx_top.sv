@@ -22,7 +22,8 @@
 // Timing
 //   A result is ready 37 + 2S clocks after its row left the FIFO, S being "shift".
 //   A result that is not taken holds the array, so a run moves at one row per 35 + 2S
-//   clocks at best, and three rows can be written and not yet read.
+//   clocks at best, the requantize unit's time per row, and three rows can be written
+//   and not yet read: one in the requantize unit and two in the FIFO.
 //
 // Modes
 //   While "dp_sel" is high the tile walker, teach mode or attract mode owns the array
@@ -75,7 +76,7 @@ module mx_top (
 //This module has no registers of its own. Every flop is inside the FIFO, the array and requant.
 //It connects the three blocks and selects what drives the array. When dp_sel is 1 the tile walker,
 //teach mode or attract mode drives the array through the dp_ ports. When dp_sel is 0 the FIFO and
-//the REG_WR weight writes drive it. Teach mode also uses requant's adder through the ma_ ports.
+//the REG_WR weight writes drive it. Teach mode and attract mode also use requant's adder through the ma_ ports.
 logic [15:0] a_in;      //the row going into the array: the oldest row in the FIFO, or dp_a when dp_sel is 1
 logic        a_valid;   //1 when a_in holds a row: row_pop, or dp_a_valid when dp_sel is 1
 logic [3:0]  w_ld;      //the array's weight load bits, one per PE: mx_w_ld from a REG_WR weight write, or dp_w_ld when dp_sel is 1

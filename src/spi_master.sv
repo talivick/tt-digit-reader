@@ -96,9 +96,9 @@ always_ff @(posedge clk or negedge rst_n)
         end
 
 //Guard: a quiet time with both selects high before a frame to a different device than the last frame's, and before
-//the first frame after reset. A select driven high rises slowly at the device behind the module's diode and 100 k
-//pull-up, so without the quiet time that device would also take the next frame's bytes. The length is GUARD times
-//64 clocks from the clock the request arrives; GUARD = 0 skips it. had_frame: a frame has started since reset.
+//the first frame after reset. A select driven high rises slowly at the device behind the display module's diode and
+//100 k pull-up, so without the quiet time that device would also take the next frame's bytes. The length is GUARD
+//times 64 clocks from the clock the request arrives; GUARD = 0 skips it. had_frame: a frame has started since reset.
 //touch_frame: the last frame's device (1 touch). guard_due: this request needs a guard. guard_left: the count down.
 //last_flag: tx_last of the byte being sent, so the end of that byte can end the frame.
 always_ff @(posedge clk or negedge rst_n)

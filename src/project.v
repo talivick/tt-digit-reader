@@ -4,10 +4,11 @@
 // project.v : the top level of the chip
 //
 // Description
-//   The chip holds an INT8 2x2 matrix unit, a digit reader that runs on it, teach mode,
-//   a screen and touch driver on one SPI bus and a 7-segment readout, on Tiny Tapeout
-//   SKY26d (sky130, 3x2 tiles, 25 MHz). This file maps the blocks onto the template's
-//   pins and joins them; it holds no flop of its own.
+//   The chip holds an INT8 2x2 matrix unit, a digit reader that runs on it, teach mode
+//   (on-chip learning of two drawn symbols), a screen and touch driver on one SPI bus
+//   and a 7-segment readout, on Tiny Tapeout SKY26d (sky130, 3x2 tiles, 25 MHz). This
+//   file maps the blocks onto the template's pins and joins them; it holds no flop of
+//   its own.
 //
 // Parameters
 //   HAS_DIGIT, HAS_DISPLAY, HAS_TEACH and HAS_ATTRACT choose the blocks built, and
@@ -37,7 +38,7 @@
 `default_nettype none
 
 module tt_um_talivick_digit_reader #(
-    parameter bit HAS_DIGIT = 1'b0,    //1 builds the digit reader (dp_img, dp_walk, dp_acc); 0 in the safety-net submission
+    parameter bit HAS_DIGIT = 1'b0,    //1 builds the digit reader (dp_img, dp_walk, dp_acc); 0 in the fallback
     parameter bit HAS_DISPLAY = 1'b0,  //1 builds the display (spi_master, disp_seq, touch_rd)
     parameter bit HAS_TEACH = 1'b0,    //1 builds teach mode (tch_ring, teach)
     parameter bit HAS_ATTRACT = 1'b0   //1 builds attract mode (attract); 0 in the chip
@@ -100,7 +101,7 @@ logic signed [17:0] ma_q;
 logic               ma_neg;
 // seg7's output
 logic        [7:0]  seg;
-//  the display's nets (spi_master, disp_seq, touch_rd): tied in without_display
+// the display's nets (spi_master, disp_seq, touch_rd): tied in without_display
 logic               sck;
 logic               mosi;
 logic               dc;
@@ -209,7 +210,7 @@ sync2 #(.RST_VAL (1'b0)) i_sync_miso (.clk, .rst_n(rst_n_s), .d(uio_in[5]), .q(m
 //arguments and its responses, answers ID and STATUS itself, and drives the command bus and the register bus to
 //the blocks. The four parameters set which commands and registers it knows, and ID's second byte.
 cmd_dec #(
-    .HAS_DIGIT (HAS_DIGIT),      //digit path present (sets the form code in ID); parameter bit: one bit in ID's byte
+    .HAS_DIGIT (HAS_DIGIT),      //digit path present; with HAS_DISPLAY it sets the 6-bit form code in ID's second byte
     .HAS_DISPLAY (HAS_DISPLAY),  //display path present
     .HAS_TEACH (HAS_TEACH),      //teach mode present (ID bit 7)
     .HAS_ATTRACT (HAS_ATTRACT)   //attract mode present (ID bit 6); 0 in this chip
@@ -254,7 +255,7 @@ cmd_dec #(
     .tch_score,        //TCH_READ: the score
     .tch_learned,      //TCH_READ: LEARNED
     .tch_bias,         //TCH_READ: the bias word
-    .tch_bias_ok       //TCH_READ: the bias word is at the ring's head
+    .tch_bias_ok       //TCH_READ: the bias word is at the teach ring's head
     );
 
 //Matrix control: it holds the matrix registers, counts the rows of a run and lets them stream into the

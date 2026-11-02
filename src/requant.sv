@@ -66,7 +66,7 @@ module requant #(
 //  t1 = column sum + bias                          18-bit signed
 //  {ph, pl} = t1 * scale                           MULT, 16 clocks: add t1 when the scale bit pl[0] is 1, then shift the pair right
 //  {ph, pl} >>= shift, r_bit = the last bit out    SHFT, shift clocks: arithmetic shift; r_bit rounds half up
-//  y_byte = clamp(q[7:0] + r_bit), then ReLU       WR, 1 clock: column 0 into y[7:0], column 1 into y[15:8]
+//  y_byte = clamp(q) + r_bit in range, then ReLU   WR, 1 clock: column 0 into y[7:0], column 1 into y[15:8]
 //Teach mode and attract mode (ma_sel = 1, only while IDLE) use the adder: it adds t1 = (ma_pe ? p0 : 0) + ma_b
 //  to ph (or to 0 when ma_clr); ma_we loads ph with the sum; ma_q = ph; ma_neg = the sum's sign.
 
