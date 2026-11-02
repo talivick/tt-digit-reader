@@ -42,6 +42,7 @@ module array (
 
 logic [7:0]  a1_skew;
 logic        v1_skew;
+//the nets between the processing elements are named by their two ends, source first
 logic [7:0]  a_00_01, a_10_11;
 logic        v_00_01, v_10_11;
 logic [16:0] p_00_10, p_01_11, p_10, p_11, p0_deskew;
@@ -55,15 +56,15 @@ always_ff @(posedge clk or negedge rst_n) //asynchronous clear; rst_n comes from
     if(~rst_n)
         v1_skew <= 1'b0;
     else if(en)
-        v1_skew <= a_valid; //delay one cycle
+        v1_skew <= a_valid; //row 1's valid one clock late, with a1_skew
         
 always_ff @(posedge clk)
     begin
     if(en)
-        a1_skew <= a_in[15:8]; //delay one cycle
+        a1_skew <= a_in[15:8]; //row 1's activation one clock late, to arrive at PE(1, 0) with PE(0, 0)'s partial sum
     
     if(en)
-        p0_deskew <= p_10; //delay one cycle to align with p_11
+        p0_deskew <= p_10; //column 0's sum one clock late, out with column 1's, which is ready a clock later
     end
     
 assign p_out = {p_11, p0_deskew};
@@ -76,10 +77,10 @@ pe pe_u00(      //Row 0, Column 0
         .w_in   (w_in[7:0]),
         .a_in   (a_in[7:0]),
         .v_in   (a_valid),
-        .a_out  (a_00_01),
-        .v_out  (v_00_01),
+        .a_out  (a_00_01),      //the activation to PE(0, 1)
+        .v_out  (v_00_01),      //its valid
         .p_in   ('0),   //no pe above
-        .p_out  (p_00_10)
+        .p_out  (p_00_10)       //the partial sum down to PE(1, 0)
         );
 
 pe pe_u01(      //Row 0, Column 1
@@ -93,7 +94,7 @@ pe pe_u01(      //Row 0, Column 1
         .a_out  (unused_a_01),      //no pe on right
         .v_out  (unused_v_01),      //no pe on right
         .p_in   ('0),   //no pe above
-        .p_out  (p_01_11)
+        .p_out  (p_01_11)       //the partial sum down to PE(1, 1)
         );
         
 pe pe_u10(      //Row 1, Column 0
@@ -104,10 +105,10 @@ pe pe_u10(      //Row 1, Column 0
         .w_in   (w_in[23:16]),
         .a_in   (a1_skew),
         .v_in   (v1_skew),
-        .a_out  (a_10_11),
-        .v_out  (v_10_11),
+        .a_out  (a_10_11),      //the activation to PE(1, 1)
+        .v_out  (v_10_11),      //its valid
         .p_in   (p_00_10),
-        .p_out  (p_10)
+        .p_out  (p_10)          //column 0's sum
         );
         
 pe pe_u11(      //Row 1, Column 1
@@ -121,7 +122,7 @@ pe pe_u11(      //Row 1, Column 1
         .a_out  (unused_a_11),  //no pe on right
         .v_out  (p_valid),
         .p_in   (p_01_11),
-        .p_out  (p_11)
+        .p_out  (p_11)          //column 1's sum
         );
 
 endmodule

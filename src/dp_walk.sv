@@ -75,9 +75,9 @@ enum logic [2:0] {IDLE, REQ, ROW, WAIT, ADD2} state, next_state;
 //Weight loads: each TILE byte loads two of the array's four weights as it arrives, byte 0 the top row and
 //byte 1 the bottom row, each nibble sign-extended from 4 bits to 8. wk_sel is high while the bytes load and
 //while a tile runs, so the array takes its weights and its row from the walker instead of the matrix path.
-assign tile_byte    = arg_we & (cmd == address_map::CMD_TILE);
-assign weight_lo    = {{4{arg_byte[3]}}, arg_byte[3:0]};
-assign weight_hi    = {{4{arg_byte[7]}}, arg_byte[7:4]};
+assign tile_byte    = arg_we & (cmd == address_map::CMD_TILE);    //a TILE byte is arriving
+assign weight_lo    = {{4{arg_byte[3]}}, arg_byte[3:0]};          //the low nibble, the column 0 weight, sign-extended
+assign weight_hi    = {{4{arg_byte[7]}}, arg_byte[7:4]};          //the high nibble, the column 1 weight, sign-extended
 assign wk_w_ld      = tile_byte ? ((arg_idx == 4'd0) ? 4'b0011 : 4'b1100) : 4'b0000;
 assign wk_w         = tile_byte ? {weight_hi, weight_lo, weight_hi, weight_lo} : 32'd0;
 assign wk_sel       = tile_byte | wk_busy;
@@ -86,7 +86,7 @@ assign wk_sel       = tile_byte | wk_busy;
 //it whatever the image ring does after.
 always_ff @(posedge clk)
     if((state == REQ) & rings_ack)
-        pair_reg    <= pair;
+        pair_reg    <= pair;    //the kept pair, {code(2i+1), code(2i)}
 
 //Row: the two codes of the pair go into the array as one row, pixel 2i in the low byte and pixel 2i + 1 in the
 //high byte, each zero-extended from 2 bits to 8, with the valid high for the one clock of ROW.
@@ -97,10 +97,10 @@ assign wk_a_valid   = (state == ROW);
 //once and class 2j + 1's is kept for one clock and goes next. The low 12 bits of each 17-bit signed sum are its
 //whole value: a sum of two products of a 2-bit unsigned code, 0 to 3, and a 4-bit signed weight, -8 to 7, lies
 //between -48 and 42.
-assign add1 = (state == WAIT) & dp_p_valid;
+assign add1 = (state == WAIT) & dp_p_valid;    //the clock the sums arrive in WAIT, the first add
 always_ff @(posedge clk)
     if(add1)
-        c1_reg      <= dp_p[28:17];
+        c1_reg      <= dp_p[28:17];            //column 1's low 12 bits, kept for the second add in ADD2
 
 assign acc_add      = add1 | (state == ADD2);
 assign acc_add_val  = (state == ADD2) ? c1_reg : dp_p[11:0];
@@ -108,8 +108,8 @@ assign acc_add_val  = (state == ADD2) ? c1_reg : dp_p[11:0];
 //Tile state machine: IDLE waits for TILE's go; REQ holds both ring requests until both acknowledge; ROW sends
 //the row; WAIT waits for the column sums; ADD2 sends the second add. A tile takes 7 clocks from go to idle when
 //both rings are already in place, one more for each step the image ring needs.
-assign go_tile      = go & (cmd == address_map::CMD_TILE);
-assign rings_ack    = pair_ack & acc_ack;
+assign go_tile      = go & (cmd == address_map::CMD_TILE);    //TILE's go
+assign rings_ack    = pair_ack & acc_ack;                     //both rings acknowledge
 
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
@@ -145,7 +145,7 @@ assign walk_acc_idx     = {j, 1'b0};
 //Tile counters: j counts the class pair, 0 to 4, and i the pixel pair, 0 to 31. At the end of each tile j
 //steps, and when j wraps i steps; i wraps at 32 by its width. DIG_START's go clears both, so the 160 tiles
 //that follow it start at tile 0.
-assign go_start = go & (cmd == address_map::CMD_DIG_START);
+assign go_start = go & (cmd == address_map::CMD_DIG_START);    //DIG_START's go
 
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)

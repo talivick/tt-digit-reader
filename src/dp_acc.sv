@@ -4,10 +4,13 @@
 // dp_acc.sv : the accumulator ring and the argmax
 //
 // Description
-//   Holds the digit reader's ten 12-bit signed class scores, ACC[0] to ACC[9], as a ring
-//   that steps toward its head; takes the tile walker's adds, reads out any score, and
-//   finds the class with the largest score, a tie going to the lowest class. The ring
-//   replaces a 10-to-1 read multiplexer.
+//   Holds the digit reader's ten 12-bit signed class scores, ACC[0] to ACC[9], in a ring
+//   of ten places. The head is the one place that is read and added to. A step moves
+//   every score one place toward the head, and the score that was at the head, plus its
+//   add if there is one, goes around to the tail, the place at the far end. The ring
+//   takes the tile walker's adds, reads out any score, and finds the class with the
+//   largest score, a tie going to the lowest class; it replaces a 10-to-1 read
+//   multiplexer.
 //
 // Operation
 //   DIG_START's ten argument bytes, the INT8 biases of classes 0 to 9, load the scores
@@ -69,9 +72,9 @@ enum logic [1:0] {IDLE, SEEK, SCAN} state, next_state;
 //puts the head's score plus the value added there, with 12-bit wrap; otherwise the head's score goes around
 //unchanged.
 assign load     = arg_we & (cmd == address_map::CMD_DIG_START);
-assign bias12   = {{4{arg_byte[7]}}, arg_byte};
-assign sum      = acc_val + acc_add_val;
-assign new9     = load ? bias12 : (acc_add ? sum : acc_val);
+assign bias12   = {{4{arg_byte[7]}}, arg_byte};                  //the byte sign-extended from 8 bits to 12
+assign sum      = acc_val + acc_add_val;                         //the head's score plus the value added
+assign new9     = load ? bias12 : (acc_add ? sum : acc_val);     //what the tail, nine places behind the head, takes
 
 //Ring step: the ring moves for a bias byte, an add, a read whose score is not yet at the head, and every clock
 //of an argmax.
@@ -82,7 +85,7 @@ assign move     = load | acc_add | step;
 //one score toward the head and the tail takes the ring input. The scores have no reset; DIG_START writes them.
 always_ff @(posedge clk)
     if(move)
-        ar      <= {new9, ar[119:12]};
+        ar      <= {new9, ar[119:12]};    //the register of the ten scores
 
 //Position counter: apos is the index of the score at the head. It resets to 0, returns to 0 with every
 //DIG_START byte, and goes up by one with every move, wrapping at 10.
@@ -101,8 +104,8 @@ assign acc_ack      = acc_req & (apos == acc_idx) & ~am_busy;
 
 //Argmax state machine: IDLE waits for DIG_ARGMAX's go; SEEK steps the ring until score 0 is at the head; SCAN
 //steps through the ten scores, one per clock, and ends on the tenth.
-assign go_argmax    = go & (cmd == address_map::CMD_DIG_ARGMAX);
-assign go_start     = go & (cmd == address_map::CMD_DIG_START);
+assign go_argmax    = go & (cmd == address_map::CMD_DIG_ARGMAX);    //DIG_ARGMAX's go
+assign go_start     = go & (cmd == address_map::CMD_DIG_START);     //DIG_START's go; it clears win_valid
 
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
@@ -129,12 +132,13 @@ always_comb
 //signed compare, so a tie keeps the lower class. On the last clock the tenth score is compared on its own.
 assign am_busy      = (state != IDLE);
 assign last         = (state == SCAN) & (apos == 4'd9);
+//the head's score is greater than the best so far, or it is the first score, at apos 0
 assign better       = (apos == 4'd0) | (acc_val > best);
 always_ff @(posedge clk)
     if((state == SCAN) & better)
         begin
         best        <= acc_val;
-        best_idx    <= apos;
+        best_idx    <= apos;    //the class of the best so far
         end
 
 //Result registers: on the last clock winner takes the tenth score's index if it beats the best, else the

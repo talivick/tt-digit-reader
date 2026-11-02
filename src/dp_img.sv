@@ -4,10 +4,12 @@
 // dp_img.sv : the image ring
 //
 // Description
-//   Stores the 8 by 8 input image, 64 pixel codes of 2 bits in 16 bytes, as a ring that
-//   steps one byte toward its head at a time, and serves it at the head: one pixel pair
-//   at a time to the tile walker and the display, one byte at a time to teach mode. A
-//   ring read only at its head replaces a read multiplexer.
+//   Stores the 8 by 8 input image, 64 pixel codes of 2 bits in 16 bytes, in a ring of 16
+//   places. The head is the one place that is read. A step moves every byte one place
+//   toward the head, and the byte that was at the head goes around to the tail, the place
+//   at the far end. The ring serves the image at the head, one pixel pair at a time to
+//   the tile walker and the display and one byte at a time to teach mode, and so
+//   replaces a read multiplexer.
 //
 // Operation
 //   IMG's 16 bytes arrive on "arg_byte" with "arg_we"; byte k holds pixels 4k to 4k + 3,
@@ -75,7 +77,7 @@ assign load = arg_we & (cmd == address_map::CMD_IMG);
 //to the tail. ipos counts the steps, so it is the index of the byte at the head. The ring steps for a pair
 //request until the pair's byte is at the head, for a seek until byte 0 is at the head, and once for each
 //img_step.
-assign in_place = (ipos == pair_idx[4:1]);
+assign in_place = (ipos == pair_idx[4:1]);      //the requested pair's byte, byte i div 2, is at the head
 assign img_at0 = (ipos == 4'd0);
 assign step = (pair_req & ~in_place) | (img_seek0 & ~img_at0) | img_step;
 
@@ -84,14 +86,14 @@ assign step = (pair_req & ~in_place) | (img_seek0 & ~img_at0) | img_step;
 //head's byte, or the IMG byte, and ring_a's tail takes ring_b's low byte. When attract mode splits them, each
 //is a ring of 8 that moves on its own enable and takes its own tail byte. The 128 bits have no reset; the host
 //writes them before use.
-assign new15 = load ? arg_byte : (img_split ? img_tail_b : ring_a[7:0]);
-assign move_b = load | step | (img_split & img_en_b);
+assign new15 = load ? arg_byte : (img_split ? img_tail_b : ring_a[7:0]);    //what byte 15, ring_b's tail, takes
+assign move_b = load | step | (img_split & img_en_b);                       //ring_b moves this clock
 always_ff @(posedge clk)
     if(move_b)
         ring_b  <= {new15, ring_b[63:8]};
 
-assign new7 = img_split ? img_tail_a : ring_b[7:0];
-assign move_a = load | step | (img_split & img_en_a);
+assign new7 = img_split ? img_tail_a : ring_b[7:0];      //what byte 7, ring_a's tail, takes
+assign move_a = load | step | (img_split & img_en_a);    //ring_a moves this clock
 always_ff @(posedge clk)
     if(move_a)
         ring_a  <= {new7, ring_a[63:8]};
