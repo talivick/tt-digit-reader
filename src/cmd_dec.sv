@@ -5,7 +5,9 @@
 //
 // Description
 //   Takes the host's bytes over the four-phase handshake, decodes the commands for the
-//   blocks, supplies the response bytes and keeps the error and status bits.
+//   blocks, supplies the response bytes and keeps the error and status bits. Its commands
+//   are the matrix unit's, the digit path's and, with HAS_DISPLAY, the display's: the
+//   drawings, the two pass-through bytes and TP_READ.
 //
 // Parameters
 //   HAS_DIGIT, HAS_DISPLAY, HAS_TEACH and HAS_ATTRACT, 1, 1, 1 and 0 in the chip, say
@@ -38,10 +40,10 @@
 `default_nettype none
 
 module cmd_dec #(
-    parameter bit HAS_DIGIT = 1'b1, //digit path present; with HAS_DISPLAY it sets the 6-bit form code in ID's second byte
-    parameter bit HAS_DISPLAY = 1'b1,   //display path present
-    parameter bit HAS_TEACH = 1'b1, //teach mode present (ID bit 7)
-    parameter bit HAS_ATTRACT = 1'b0    //attract mode present (ID bit 6); 0 in this chip
+    parameter bit HAS_DIGIT = 1'b1,         //digit path present; with HAS_DISPLAY it sets the 6-bit form code in ID's second byte
+    parameter bit HAS_DISPLAY = 1'b1,       //display path present
+    parameter bit HAS_TEACH = 1'b1,         //teach mode present (ID bit 7)
+    parameter bit HAS_ATTRACT = 1'b0        //attract mode present (ID bit 6); 0 in this chip
 ) (
     input  logic               clk,          //rising edge
     input  logic               rst_n,        //asynchronous, active low; resets the handshake state, ARMED and the status bits
@@ -95,6 +97,9 @@ localparam logic [7:0] NOP = 8'h00, ID = 8'h01, STATUS = 8'h02, CLR_ERR = 8'h03,
 localparam logic [7:0] DIG_START = 8'h30, IMG = 8'h31, TILE = 8'h32, DIG_ARGMAX = 8'h33,
                        DIG_READ = 8'h34;
 
+localparam logic [7:0] DRAW_RECT = 8'h40, DRAW_IMG = 8'h41, DRAW_BARS = 8'h42, DRAW_DIGIT = 8'h43,
+                       PT_CMD = 8'h48, PT_DAT = 8'h49, TP_READ = 8'h50;
+
 
 //State codes: the handshake states and the three phases of a transfer. A transfer is one command byte, then its
 //argument bytes, then its response bytes.
@@ -122,7 +127,7 @@ logic       last;        //1 when byte_idx is the last argument byte or the last
 logic       take_cmd;    //take split by phase: the command byte
 logic       take_arg;    //an argument byte
 logic       take_resp;   //a response byte
-logic       mapped;      //the REG_WR address is one of ctrl's registers, 0x10 to 0x1D
+logic       mapped;      //the REG_WR address exists in this build; the assign in part 3 has the ranges
 logic [7:0] s0;          //status byte 0
 logic [7:0] s1;          //status byte 1
 logic [7:0] s2;          //status byte 2
@@ -131,6 +136,7 @@ logic [7:0] resp_mux;    //the response byte for code and byte_idx; loaded into 
 logic       refuse;      //the command byte on ui_in is a TILE and the matrix unit is busy
 logic [4:0] acc_pos;     //DIG_READ response byte n (1 to 20) gives n - 1: bits 4:1 the accumulator, bit 0 the low byte
 logic       acc_wait;    //a DIG_READ accumulator byte waits for the accumulator ring to deliver the one asked for
+logic       tp_wait;     //TP_READ's first response byte waits for the touch conversion to end
 
 
 //--------------------------------------------------------------------------------------------------------------------
@@ -139,9 +145,10 @@ logic       acc_wait;    //a DIG_READ accumulator byte waits for the accumulator
 
 //Byte capture: a byte is taken when the handshake is idle, the decoder is armed, the host has raised
 //in_valid_s, and nothing holds the byte back. held keeps a command byte waiting while the display or the
-//tile walker is busy; acc_wait keeps a DIG_READ response byte waiting until the accumulator ring has the value.
+//tile walker is busy; acc_wait keeps a DIG_READ response byte waiting until the accumulator ring has the value;
+//tp_wait keeps TP_READ's first response byte waiting until the touch conversion has ended.
 assign held = (phase == PHASE_CMD) & (disp_busy | walk_busy) & (ui_in > 8'h03);   
-assign take = (hs_state == HS_IDLE) & armed & in_valid_s & ~held & ~acc_wait;
+assign take = (hs_state == HS_IDLE) & armed & in_valid_s & ~held & ~acc_wait & ~tp_wait;
 
 
 //Handshake: the four-phase handshake with the host. take is the clock the byte is captured. One
@@ -193,7 +200,8 @@ assign code = (phase == PHASE_CMD) ? ui_in : cmd;
 
 //Command table: every command the decoder knows has a fixed number of argument bytes and response
 //bytes. The three lines before the case are the values for a command with no arguments and no response;
-//each row changes only what differs. The digit path's commands are known only when HAS_DIGIT is 1.
+//each row changes only what differs. The digit path's commands are known only when HAS_DIGIT is 1, the
+//display's only when HAS_DISPLAY is 1; DRAW_IMG and DRAW_BARS draw from the digit path's rings and need both.
 always_comb
     begin
     known = 1'b1;
@@ -220,6 +228,16 @@ always_comb
     
     DIG_READ:   begin                   known = HAS_DIGIT; resp_count = 5'd21; end
     
+    DRAW_RECT, DRAW_DIGIT:  begin       known = HAS_DISPLAY; arg_count = 5'd10; end
+
+    PT_CMD, PT_DAT:         begin       known = HAS_DISPLAY; arg_count = 5'd1; end
+
+    TP_READ:    begin                   known = HAS_DISPLAY; arg_count = 5'd1; resp_count = 5'd2; end
+
+    DRAW_IMG:   begin                   known = HAS_DIGIT & HAS_DISPLAY; arg_count = 5'd14; end
+
+    DRAW_BARS:  begin                   known = HAS_DIGIT & HAS_DISPLAY; arg_count = 5'd15; end
+
     default:                            known = 1'b0;
     endcase
     end
@@ -352,7 +370,11 @@ always_ff @(posedge clk or negedge rst_n)
             res_ready   <= 1'b0;
         end
 
-assign mapped = (reg_addr >= address_map::REG_MX_FIRST) & (reg_addr <= address_map::REG_MX_LAST);
+//mapped: the REG_WR address exists in this build: the matrix unit's registers 0x10 to 0x1D, and with HAS_DISPLAY
+//the display's 0x00 to 0x05, one span: disp_seq's OP_CASET, OP_PASET, OP_RAMWR and PIXFMT, then spi_master's
+//SCKDIV and GUARD. The span starts at 0x00, so one bound tests it.
+assign mapped = ((reg_addr >= address_map::REG_MX_FIRST) & (reg_addr <= address_map::REG_MX_LAST))
+                | (HAS_DISPLAY & (reg_addr <= address_map::REG_SPI_LAST));
 
 
 //--------------------------------------------------------------------------------------------------------------------
@@ -424,7 +446,8 @@ assign form_code = HAS_DIGIT ? (HAS_DISPLAY ? 6'd1 : 6'd4) :
 //Response mux: the response byte for the current command and byte index. ID: 0x44, then {HAS_TEACH, HAS_ATTRACT,
 //form_code}. STATUS: S0, S1, S2. MX_READ: {7'b0, res_valid}, then the result's low byte and high byte,
 //or 0x00 bytes when no result was waiting. DIG_READ: S2, then each accumulator high byte first, the high
-//byte sign-extended from 12 bits to 16; the value comes from the accumulator ring on acc_val.
+//byte sign-extended from 12 bits to 16; the value comes from the accumulator ring on acc_val. TP_READ: the
+//conversion's four high bits in a byte, then its low byte.
 always_comb
     case(code)
     ID:         begin if(byte_idx == 5'd0)       resp_mux = 8'h44;
@@ -445,6 +468,10 @@ always_comb
                       else                       resp_mux = acc_pos[0] ? acc_val[7:0] : { {4{acc_val[11]}}, acc_val[11:8] };
                 end
 
+    TP_READ:    begin if(byte_idx == 5'd0)       resp_mux = {4'b0000, tp_value[11:8]};
+                      else                       resp_mux = tp_value[7:0];
+                end
+
     default:    resp_mux = 8'h00;
     endcase
     
@@ -454,7 +481,7 @@ always_ff @(posedge clk)
 
 
 //--------------------------------------------------------------------------------------------------------------------
-//  6. The accumulator reads and the TILE refusal
+//  6. The accumulator reads, the touch wait and the TILE refusal
 //--------------------------------------------------------------------------------------------------------------------
 
 //DIG_READ's accumulator bytes: from the clock after S2 is taken until the last byte, dec_acc_req asks
@@ -476,5 +503,12 @@ always_ff @(posedge clk)
 //acc_pos and acc_wait: the position of DIG_READ's accumulator byte, and the wait for its accumulator.
 assign acc_pos = byte_idx - 5'd1;        
 assign acc_wait = dec_acc_req & ~acc_ack;
+
+
+//tp_wait: TP_READ's first response byte is asked for and the touch conversion has not ended; it holds take at 0,
+//so in_ready stays low and the host waits. touch_rd raises tp_valid at the end of the conversion and drops it at
+//the next TP_READ's go, one clock after the control byte's take, before that read's first response byte can be
+//taken.
+assign tp_wait = (phase == PHASE_RESP) & (code == TP_READ) & (byte_idx == 5'd0) & ~tp_valid;
 
 endmodule
