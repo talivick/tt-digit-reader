@@ -1,5 +1,5 @@
-// RTL simulation stand-in for the delay cell the teach ring instantiates (chip plan 6.16).
-// The gate-level build reads the PDK's own model; this file is never listed in info.yaml.
+// The delay cell that the teach ring instantiates, as a plain wire for the RTL simulation. The gate-level simulation
+// reads the PDK's own model of the cell, so this file is not among the chip's sources in info.yaml.
 module sky130_fd_sc_hd__dlygate4sd3_1 (input A, output X);
-	assign X = A;
+    assign X = A;
 endmodule
