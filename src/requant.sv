@@ -62,13 +62,16 @@ module requant #(
     output logic                      ma_neg    //sign of the 19-bit sum when teach mode or attract mode uses the adder
 );
 
+
 //Data path: how a row becomes two result bytes, one column at a time (col_bit picks the column):
 //  t1 = column sum + bias                          18-bit signed
-//  {ph, pl} = t1 * scale                           MULT, 16 clocks: add t1 when the scale bit pl[0] is 1, then shift the pair right
+//  {ph, pl} = t1 * scale                           MULT, 16 clocks: add t1 when the scale bit pl[0] is 1, then shift
+//                                                  the pair right
 //  {ph, pl} >>= shift, r_bit = the last bit out    SHFT, shift clocks: arithmetic shift; r_bit rounds half up
 //  y_byte = clamp(q) + r_bit in range, then ReLU   WR, 1 clock: column 0 into y[7:0], column 1 into y[15:8]
 //Teach mode and attract mode (ma_sel = 1, only while IDLE) use the adder: it adds t1 = (ma_pe ? p0 : 0) + ma_b
 //  to ph (or to 0 when ma_clr); ma_we loads ph with the sum; ma_q = ph; ma_neg = the sum's sign.
+
 
 //Registers
 enum logic   [1:0]   {IDLE, MULT, SHFT, WR} state, next_state; //the state and its next value
@@ -87,12 +90,28 @@ logic signed [7:0]  y_pre;            //q clamped to -128..127, rounded
 logic        [7:0]  y_byte;           //y_pre after ReLU
 logic               start;            //a row starts: sums valid and the result register free
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  1. The adder and the result byte
+//--------------------------------------------------------------------------------------------------------------------
+
 assign start = p_valid & (~y_valid | y_ready);
 assign s      = add_a + add_b;
+
+
+//Result byte: in WR, q is the product register, the product shifted right S times, and r_bit the last bit
+//shifted out, so q + r_bit is the product divided by 2^S, rounded half up. y_pre clamps q to -128..127 and adds
+//r_bit only inside that range, so nothing rounds past 127; y_byte applies ReLU:
+//                q < -128         -128 <= q <= 126         q >= 127
+//    y_pre       -128             q + r_bit                127
+//    y_byte      y_pre, or 0 when relu is 1 and y_pre is negative
 assign q      = {ph, pl};
 assign y_pre = (q >= 127) ? 8'sd127 : (q < -128) ? 8'sh80 : q[7:0] + {7'b0, r_bit};  //clamp (8'sh80 is -128); in range: round half up
 assign y_byte = (relu & y_pre[7]) ? 8'd0 : y_pre;                       //ReLU: a negative byte becomes 0
 
+
+//The adder's inputs: in a run, t1 is the column's sum plus its bias, added into ph on a MULT clock whose scale
+//bit is 1; while ma_sel is 1, teach mode or attract mode gives the operand and the addend on the ma_ ports.
 assign t1_a  = ma_sel ? (ma_pe ? p0 : 17'sd0) : (col_bit ? p1 : p0);    //ma_sel: the operand of teach mode or attract mode
 assign t1_b  = ma_sel ? ma_b : (col_bit ? bias1 : bias0);               //ma_sel: the addend of teach mode or attract mode
 assign t1 = t1_a + t1_b;
@@ -100,10 +119,19 @@ assign add_a = (ma_sel & ma_clr) ? 19'sd0 : 19'(ph);                    //ma_clr
 assign add_b = (ma_sel | pl[0]) ? 19'(t1) : 19'sd0;                     //add t1 on a MULT clock whose scale bit is 1
 assign take   = (state == WR) & col_bit;                                //release the array after column 1
 
+
 //Outputs to teach mode and attract mode: ma_q shows PH, ma_neg the sign of the sum.
 assign ma_q   = ph;
 assign ma_neg = s[18];
- 
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  2. The control
+//--------------------------------------------------------------------------------------------------------------------
+
+//State machine: IDLE waits for a row; MULT is the 16 clocks of the multiply; SHFT shifts the product right one
+//bit per clock for S clocks and is skipped when S is 0; WR writes the column's byte, then column 1 starts in
+//MULT, or after column 1 the unit returns to IDLE.
 always_ff @(posedge clk or negedge rst_n) //Control: the registers with a reset
     begin                       
     if (~rst_n) 
@@ -160,7 +188,15 @@ always_comb
           end
     default:                                                    next_state = IDLE;
     endcase
-    
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  3. The product register
+//--------------------------------------------------------------------------------------------------------------------
+
+//Product register: {ph, pl}, 34 bits. A column starts with {0, scale}. Each MULT clock adds t1 into ph when
+//pl[0], the scale bit in use, is 1 and shifts the pair right one bit, so after 16 clocks the pair holds t1
+//times the scale; each SHFT clock shifts it right once more and keeps the bit shifted out in r_bit.
 always_ff @(posedge clk) //Data path: the registers without a reset
     begin
     if(state == IDLE) 
@@ -197,7 +233,5 @@ always_ff @(posedge clk) //Data path: the registers without a reset
         else /*(col_bit == 'd1)*/ //write column 1's byte
             y[15:8]     <= y_byte;
     end
-    
-
 
 endmodule

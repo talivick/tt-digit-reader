@@ -47,11 +47,25 @@ logic [7:0]  a_00_01, a_10_11;
 logic        v_00_01, v_10_11;
 logic [16:0] p_00_10, p_01_11, p_10, p_11, p0_deskew;
 
+
 //Unused signals: the outputs at the array's right edge that nothing reads, declared so Verilator does not
 //report them.
 logic [7:0]  unused_a_01, unused_a_11;
 logic        unused_v_01;
 
+
+//Skew and de-skew: row 1's activation and valid reach PE(1, 0) one clock after row 0's reach PE(0, 0), in step
+//with PE(0, 0)'s partial sum, and column 0's sum waits one clock in p0_deskew to leave with column 1's. p_valid
+//is PE(1, 1)'s valid out:
+//    a_in[7:0], a_valid --------------------------> PE(0, 0) --- a_00_01, v_00_01 ---> PE(0, 1)
+//                                                      |  p_00_10                         |  p_01_11
+//                                                      v                                  v
+//    a_in[15:8], a_valid ---> a1_skew, v1_skew ---> PE(1, 0) --- a_10_11, v_10_11 ---> PE(1, 1)
+//                                                      |  p_10                            |  p_11
+//                                                      v                                  |
+//                                                  p0_deskew                              |
+//                                                      v                                  v
+//                                                 p_out[16:0]                        p_out[33:17]
 always_ff @(posedge clk or negedge rst_n) //asynchronous clear; rst_n comes from the top's reset synchronizer, so it falls at once and rises on a clock edge
     if(~rst_n)
         v1_skew <= 1'b0;

@@ -68,10 +68,12 @@ logic           move_b;
 logic [7:0]     new7;
 logic           move_a;
 
+
 //Image load: each byte of IMG enters at the tail, ring[15], and every byte already stored moves one place
 //toward the head. After the sixteenth byte the image lies in order, byte 0 at the head, and the position
 //counter is back at 0.
-assign load = arg_we & (cmd == address_map::CMD_IMG);
+assign load = arg_we & (cmd == address_map::CMD_IMG);    //a byte of IMG is arriving
+
 
 //Ring step: a step moves every byte one place toward the head, and the byte that was at the head goes around
 //to the tail. ipos counts the steps, so it is the index of the byte at the head. The ring steps for a pair
@@ -81,22 +83,33 @@ assign in_place = (ipos == pair_idx[4:1]);      //the requested pair's byte, byt
 assign img_at0 = (ipos == 4'd0);
 assign step = (pair_req & ~in_place) | (img_seek0 & ~img_at0) | img_step;
 
+
 //Ring buffer: the 16 bytes are stored in two 64-bit registers. ring_a holds bytes 0 to 7 with the head in its
 //low byte, and ring_b holds bytes 8 to 15. In normal use they act as one ring of 16: ring_b's tail takes the
 //head's byte, or the IMG byte, and ring_a's tail takes ring_b's low byte. When attract mode splits them, each
 //is a ring of 8 that moves on its own enable and takes its own tail byte. The 128 bits have no reset; the host
 //writes them before use.
+//On a move each place takes the byte of the place to its right:
+//                 ring_a                                   ring_b
+//    bits         [7:0]    [15:8]    ...   [63:56]         [7:0]    [15:8]    ...   [63:56]
+//    place        0        1         ...   7               8        9         ...   15
+//                 the head                                                          the tail
+//    one ring     0 <- 1 <- ... <- 7 <- 8 <- 9 <- ... <- 15 <- the head's byte, or on a load the IMG byte
+//    split        0 <- 1 <- ... <- 7 <- img_tail_a      8 <- 9 <- ... <- 15 <- img_tail_b
 assign new15 = load ? arg_byte : (img_split ? img_tail_b : ring_a[7:0]);    //what byte 15, ring_b's tail, takes
 assign move_b = load | step | (img_split & img_en_b);                       //ring_b moves this clock
+
 always_ff @(posedge clk)
     if(move_b)
         ring_b  <= {new15, ring_b[63:8]};
 
 assign new7 = img_split ? img_tail_a : ring_b[7:0];      //what byte 7, ring_a's tail, takes
 assign move_a = load | step | (img_split & img_en_a);    //ring_a moves this clock
+
 always_ff @(posedge clk)
     if(move_a)
         ring_a  <= {new7, ring_a[63:8]};
+
 
 //Position counter: ipos resets to 0, goes up by one with every step, returns to 0 with every IMG byte, and
 //does not move while the ring is split.
@@ -107,6 +120,7 @@ always_ff @(posedge clk or negedge rst_n)
         ipos    <= 4'd0;
     else if(step)
         ipos    <= ipos + 1'd1;
+
 
 //Read port: a pair request is acknowledged while its byte is at the head. The pair is the low half or the high
 //half of the head's byte, chosen by bit 0 of the index. img_head0 and img_head8 are the low bytes of ring_a

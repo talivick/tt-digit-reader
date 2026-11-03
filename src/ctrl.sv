@@ -53,6 +53,7 @@ module ctrl (
     output logic               mx_err      //status: an error since the last err_clr
 );
 
+
 //Run state machine: IDLE waits for mx_start and is the only state that takes register writes.
 //LOAD: one clock, loads nothing (the weights load at their own writes). STREAM: rows pop
 //into the array. DRAIN: waits for the last result.
@@ -64,6 +65,11 @@ logic [7:0] res_count;
 logic [7:0] m;          //M, the number of rows in one matrix run. The host writes it to MX_M (0x10) before MX_START,
                         //so it has no reset. m = 0 ends the run in LOAD, at once, with mx_done.
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  1. The register writes
+//--------------------------------------------------------------------------------------------------------------------
+
 assign in_range = (reg_addr >= address_map::REG_MX_FIRST) && (reg_addr <= address_map::REG_MX_LAST);    //the address is one of ctrl's
 assign wr_ok = reg_we & in_range & (state == IDLE);                         //write OK: a write to one of ctrl's addresses, in IDLE; 0 while busy, so a write while busy changes nothing here and sets mx_err below
     
@@ -74,8 +80,15 @@ assign mx_w_ld[3] = wr_ok & (reg_addr == address_map::REG_MX_W11);
 
 assign mx_w = reg_wdata;                                    //matrix weight, the data of a weight write; a PE takes it only with its mx_w_ld bit at 1
 
+
 //Control registers (no reset): the host writes these before a run. scale and the biases are written
 //a byte at a time at separate addresses; the bits a layout leaves unused are ignored.
+//The register bytes of each register, high bits first:
+//    m        MX_M
+//    scale    MX_SCALE_HI, MX_SCALE_LO
+//    shift    MX_SHIFT bits 4:0; relu is MX_SHIFT bit 7
+//    bias0    MX_BIAS0_HI bit 0, MX_BIAS0_MID, MX_BIAS0_LO
+//    bias1    MX_BIAS1_HI bit 0, MX_BIAS1_MID, MX_BIAS1_LO
 always_ff @(posedge clk)
     begin
     //m
@@ -112,12 +125,18 @@ always_ff @(posedge clk)
         bias1[16] <= reg_wdata[0];
     end
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  2. The run
+//--------------------------------------------------------------------------------------------------------------------
+
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         state   <= IDLE;
     else
         state   <= next_state;
-        
+
+
 //Next state: the five transitions, tested in this order
 always_comb
     case(state)
@@ -144,9 +163,13 @@ assign stream_en = (state == STREAM);   //stream enable: rows may pop
 
 assign mx_busy = (state != IDLE);       //a run is in progress, status S0 bit 2, mx_err reads it    
 
+
+//Row and result counters: the rows and the results popped in this run; the M-th row ends STREAM and the
+//M-th result ends DRAIN.
 always_ff @(posedge clk)
     begin  
-    //the rows popped in this run; no reset: every read follows the clear at start (STREAM is reached only through IDLE with mx_start)
+    //the rows popped in this run; no reset: every read follows the clear at start (STREAM is reached only through
+    //IDLE with mx_start)
     if((state == IDLE) & mx_start)
         row_count <= 8'd0;  
     else if((state == STREAM) & row_pop)
@@ -159,6 +182,12 @@ always_ff @(posedge clk)
         res_count <= res_count + 8'd1;
     end
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  3. The status bits
+//--------------------------------------------------------------------------------------------------------------------
+
+//Status bits: mx_done and mx_err, which STATUS returns as bit 3 of S0 and bit 3 of S1, its first two bytes.
 always_ff @(posedge clk or negedge rst_n)
     begin
     //one reset branch for the block: both status bits to 0

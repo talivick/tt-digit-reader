@@ -41,7 +41,7 @@ logic signed [7:0]  w;
 always_ff @(posedge clk)
     begin
     if(w_ld)
-        w <= w_in;
+        w <= w_in;     //the held weight
     
     if(en)
         a_out <= a_in; //a_out does not reset

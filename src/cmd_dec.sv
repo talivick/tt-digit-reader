@@ -86,6 +86,7 @@ module cmd_dec #(
     input  logic               tch_bias_ok   //TCH_READ: the bias word is at the teach ring's head
 );
 
+
 //Command codes: the commands this decoder knows, with the values of address_map.sv's CMD_ names.
 localparam logic [7:0] NOP = 8'h00, ID = 8'h01, STATUS = 8'h02, CLR_ERR = 8'h03, REG_WR = 8'h04,
                        SEG_SHOW = 8'h10, SEG_WINNER = 8'h11, MX_START = 8'h20, MX_ROW = 8'h21,
@@ -93,12 +94,14 @@ localparam logic [7:0] NOP = 8'h00, ID = 8'h01, STATUS = 8'h02, CLR_ERR = 8'h03,
 
 localparam logic [7:0] DIG_START = 8'h30, IMG = 8'h31, TILE = 8'h32, DIG_ARGMAX = 8'h33,
                        DIG_READ = 8'h34;
-                    
+
+
 //State codes: the handshake states and the three phases of a transfer. A transfer is one command byte, then its
 //argument bytes, then its response bytes.
 localparam logic [1:0] HS_IDLE = 2'd0, HS_PREP = 2'd1, HS_ACK = 2'd2;
 localparam logic [1:0] PHASE_CMD = 2'd0, PHASE_ARG = 2'd1, PHASE_RESP = 2'd2;
- 
+
+
 logic       armed;       //1 once in_valid_s has been 0 after a reset; no byte is taken before that
 logic [1:0] hs_state;    //HS_IDLE waits for a byte; HS_PREP is the clock after a take; HS_ACK holds in_ready at 1
 logic [1:0] phase;       //which byte of the transfer comes next: the command byte, an argument byte or a response byte
@@ -129,11 +132,17 @@ logic       refuse;      //the command byte on ui_in is a TILE and the matrix un
 logic [4:0] acc_pos;     //DIG_READ response byte n (1 to 20) gives n - 1: bits 4:1 the accumulator, bit 0 the low byte
 logic       acc_wait;    //a DIG_READ accumulator byte waits for the accumulator ring to deliver the one asked for
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  1. The handshake
+//--------------------------------------------------------------------------------------------------------------------
+
 //Byte capture: a byte is taken when the handshake is idle, the decoder is armed, the host has raised
 //in_valid_s, and nothing holds the byte back. held keeps a command byte waiting while the display or the
 //tile walker is busy; acc_wait keeps a DIG_READ response byte waiting until the accumulator ring has the value.
 assign held = (phase == PHASE_CMD) & (disp_busy | walk_busy) & (ui_in > 8'h03);   
 assign take = (hs_state == HS_IDLE) & armed & in_valid_s & ~held & ~acc_wait;
+
 
 //Handshake: the four-phase handshake with the host. take is the clock the byte is captured. One
 //clock later hs_state is HS_PREP and in_ready rises. in_ready and the response stay until the host lowers
@@ -171,9 +180,16 @@ always_ff @(posedge clk or negedge rst_n)
             resp_oe     <= 1'b0;
         end
     end
-            
-   
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  2. The transfer
+//--------------------------------------------------------------------------------------------------------------------
+
+//code: ui_in while phase is PHASE_CMD, so the command table decodes the command byte in the clock it is taken,
+//and the stored cmd for the argument and response bytes that follow.
 assign code = (phase == PHASE_CMD) ? ui_in : cmd;
+
 
 //Command table: every command the decoder knows has a fixed number of argument bytes and response
 //bytes. The three lines before the case are the values for a command with no arguments and no response;
@@ -215,10 +231,15 @@ assign take_resp = take & (phase == PHASE_RESP);
 assign last = (phase == PHASE_ARG) ? (byte_idx == (arg_count - 5'd1)):
                                      (byte_idx == (resp_count - 5'd1));
 
+
 //Transfer sequence: after the command byte, arguments if the command has any, else responses if it
 //has any, else the next command byte. After the last argument: responses if any, else the next command
 //byte. byte_idx counts the bytes of the current phase from 0 and restarts for the responses. An unknown
 //command byte leaves phase at PHASE_CMD.
+//One transfer, one handshake per byte:
+//               the command byte    the argument bytes           the response bytes
+//    phase      PHASE_CMD           PHASE_ARG                    PHASE_RESP
+//    byte_idx                       0 to arg_count - 1           0 to resp_count - 1
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         begin
@@ -246,6 +267,11 @@ always_ff @(posedge clk or negedge rst_n)
             byte_idx    <= byte_idx + 5'd1;
         end
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  3. The outputs to the blocks
+//--------------------------------------------------------------------------------------------------------------------
+
 //Data registers: the bytes kept from the bus, with no reset; each is written before it is read.
 //arg_byte and arg_idx go to the blocks with arg_we one clock later. REG_WR's two bytes are the address
 //and the data. MX_ROW's two bytes are the row, first byte low.
@@ -269,7 +295,8 @@ always_ff @(posedge clk)
     if(take_arg & (code == MX_ROW) & (byte_idx == 5'd1))
         row_data[15:8]  <= ui_in;
     end
-        
+
+
 //Strobes to the blocks: each pulse is one clock wide, in the clock after the byte that causes it. go marks a
 //complete command: after the command byte when it has no arguments, else after the last argument.
 //A TILE taken during a run (refused) gives no arg_we and no go. reg_we needs a mapped address;
@@ -327,6 +354,11 @@ always_ff @(posedge clk or negedge rst_n)
 
 assign mapped = (reg_addr >= address_map::REG_MX_FIRST) & (reg_addr <= address_map::REG_MX_LAST);
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  4. The status bits and bytes
+//--------------------------------------------------------------------------------------------------------------------
+
 //Status bits: rst_seen clears in the clock S1 is loaded, so the S1 the host reads still shows it.
 //Each error bit sets on its event and clears on err_clr; an event in the clock of err_clr wins.
 always_ff @(posedge clk or negedge rst_n)
@@ -359,14 +391,21 @@ always_ff @(posedge clk or negedge rst_n)
         else if(err_clr)
             err_ovf     <= 1'b0;
         end
-        
+
+
 //Status bytes: the three bytes STATUS returns.
-//S0: bits 7:5 the FIFO count, 0 to 2 (bit 7 stays 0), bit 4 res_valid, 3 mx_done, 2 mx_busy, 1 walk_busy, 0 disp_busy.
-//S1: bit 7 rst_seen, bits 6:4 are 0, bit 3 mx_err, 2 err_ovf, 1 err_busy, 0 err_cmd.
-//S2: bit 7 win_valid, bits 6:4 are 0, bits 3:0 the winner.
+//    bit   7          6          5          4          3          2          1          0
+//    S0    the FIFO count, 0 to 2           res_valid  mx_done    mx_busy    walk_busy  disp_busy
+//    S1    rst_seen   0          0          0          mx_err     err_ovf    err_busy   err_cmd
+//    S2    win_valid  0          0          0          the winner
 assign s0 = {1'b0, fifo_count, res_valid, mx_done, mx_busy, walk_busy, disp_busy};
 assign s1 = {rst_seen, 3'b000, mx_err, err_ovf, err_busy, err_cmd};
 assign s2 = {win_valid, 3'b000, winner};
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  5. The responses
+//--------------------------------------------------------------------------------------------------------------------
 
 //v: the copy of res_valid that MX_READ's first response byte reports, taken in the clock that byte is loaded.
 //What the next two bytes carry and whether the result is popped follow v, so a result arriving between the
@@ -375,10 +414,12 @@ always_ff @(posedge clk)
     if(take_resp & (code == MX_READ) & (byte_idx == 5'd0))
         v       <= res_valid;
 
+
 //form_code: 1 the digit reader with the display, 2 the matrix unit alone, 3 the display without the digit reader,
 //4 the digit reader without the display.
 assign form_code = HAS_DIGIT ? (HAS_DISPLAY ? 6'd1 : 6'd4) :
                                (HAS_DISPLAY ? 6'd3 : 6'd2);
+
 
 //Response mux: the response byte for the current command and byte index. ID: 0x44, then {HAS_TEACH, HAS_ATTRACT,
 //form_code}. STATUS: S0, S1, S2. MX_READ: {7'b0, res_valid}, then the result's low byte and high byte,
@@ -411,19 +452,28 @@ always_ff @(posedge clk)
     if(take_resp)
         resp_byte   <= resp_mux;  //loaded in the clock of the take; the top puts it on uo_out while resp_oe is 1
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  6. The accumulator reads and the TILE refusal
+//--------------------------------------------------------------------------------------------------------------------
+
 //DIG_READ's accumulator bytes: from the clock after S2 is taken until the last byte, dec_acc_req asks
 //the accumulator ring for accumulator dec_acc_idx. The byte is taken only when acc_ack says the ring's
 //head is that accumulator; until then acc_wait holds take at 0 and the host waits on in_ready.
 assign dec_acc_req = (phase == PHASE_RESP) & (code == DIG_READ) & (byte_idx != 5'd0);
 assign dec_acc_idx = acc_pos[4:1];
 
+
 //TILE refused during a matrix run: refuse is read in the clock of the command byte; refused keeps the decision
 //for the two argument bytes that follow.
 assign refuse = HAS_DIGIT & (code == TILE) & mx_busy;
+
 always_ff @(posedge clk)
     if(take_cmd)
         refused <= refuse;
-        
+
+
+//acc_pos and acc_wait: the position of DIG_READ's accumulator byte, and the wait for its accumulator.
 assign acc_pos = byte_idx - 5'd1;        
 assign acc_wait = dec_acc_req & ~acc_ack;
 

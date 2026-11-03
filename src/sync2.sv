@@ -45,8 +45,8 @@ always_ff @(posedge clk or negedge rst_n)
         end
     else
         begin
-        ff1     <= d;
-        ff2     <= ff1;
+        ff1     <= d;       //the first flop
+        ff2     <= ff1;     //the second flop, the output q
         end
 
 assign q = ff2;

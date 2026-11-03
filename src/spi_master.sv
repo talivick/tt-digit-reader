@@ -76,6 +76,11 @@ logic byte_done;
 logic sel_rise;
 enum logic [2:0] {IDLE, WAIT, SEND, PAUSE, TAIL, HOLD} state, next_state;
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  1. The control registers and the guard
+//--------------------------------------------------------------------------------------------------------------------
+
 //Control registers: SCKDIV holds, for each device, the half period of sck in clocks minus 1, the screen in bits 3:0
 //and the touch controller in bits 7:4. GUARD holds the length of the guard, the quiet time with both selects high
 //between a frame to one device and a frame to the other, in steps of 64 clocks. The reset values give the screen
@@ -95,6 +100,7 @@ always_ff @(posedge clk or negedge rst_n)
             guard       <= reg_wdata;
         end
 
+
 //Guard: a quiet time with both selects high before a frame to a different device than the last frame's, and before
 //the first frame after reset. A select driven high rises slowly at the device behind the display module's diode and
 //100 k pull-up, so without the quiet time that device would also take the next frame's bytes. The length is GUARD
@@ -108,6 +114,7 @@ always_ff @(posedge clk or negedge rst_n)
         had_frame       <= 1'b1;
 
 assign guard_due = (guard != 8'd0) & (~had_frame | (tx_dev != touch_frame));
+
 always_ff @(posedge clk)
     begin
     if(start)
@@ -122,6 +129,11 @@ always_ff @(posedge clk)
         last_flag       <= tx_last;
     end
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  2. Taking a byte and the state machine
+//--------------------------------------------------------------------------------------------------------------------
+
 //Taking a byte: tx_ready is high for one clock when a byte is taken from tx_byte, which happens when tx_valid is
 //high and the master is idle with no guard due, or at the end of the guard, or in a pause between bytes, or at the
 //end of a byte that is not the frame's last. start is tx_ready for the first byte of a frame.
@@ -132,10 +144,21 @@ assign tx_ready     = tx_valid
 
 assign start        = tx_ready & ((state == IDLE) | (state == WAIT));
 
+
 //State machine: IDLE between frames; WAIT during the guard; SEND while a byte is on the bus; PAUSE between bytes of
 //a frame when the next byte is not offered in time, with sck low and the select held; TAIL for the half period of
 //sck low after the last byte's last falling edge; HOLD for the half period after the selects rise. spi_busy is
 //high in every state but IDLE.
+//One frame of one byte after a guard, drawn with H = 4, H being the half period of sck in clocks, and two
+//characters per clock; the guard and the bits between bit 6 and bit 0 are drawn short. select is the frame's chip
+//select, and capture marks the clocks in which rx_byte takes miso_s in a touch frame:
+//                    v request   v take
+//    state     IDLE    WAIT        SEND                                                 TAIL    HOLD    IDLE
+//    spi_busy  ________---------------------------------------------------------------------------------________
+//    select    --------------------_____________________________________________________________----------------
+//    sck       ____________________________--------________-------- ... ________--------________________________
+//    mosi      ____________________|bit 7          |bit 6           ... |bit 0                  |_______________
+//    capture                                     ^               ^                    ^
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         state       <= IDLE;
@@ -170,17 +193,24 @@ always_comb
 
 assign spi_busy     = (state != IDLE);
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  3. The outputs to the bus
+//--------------------------------------------------------------------------------------------------------------------
+
 //Half period counter: a bit is one half period of sck low then one of sck high, each H clocks, H being the SCKDIV
 //field of the frame's device plus 1. h_field is that field, half_count counts the clocks of the current half period
 //and half_done is 1 on its last clock. sck toggles at the end of each half period while a byte is on the bus;
 //sck_fall is 1 in the last clock of each high half period (sck falls at the end of that clock), and byte_done on
 //the sck_fall that ends the eighth bit.
 assign h_field      = touch_frame ? sckdiv[7:4] : sckdiv[3:0];
+
 always_ff @(posedge clk)
     if(tx_ready | half_done)
         half_count  <= 4'd0;
     else
         half_count  <= half_count + 4'd1;
+
 assign half_done    = (half_count == h_field);
 
 always_ff @(posedge clk or negedge rst_n)
@@ -191,6 +221,7 @@ always_ff @(posedge clk or negedge rst_n)
 
 assign sck_fall = (state == SEND) & sck & half_done;
 assign byte_done = sck_fall & (bits_left == 3'd0);
+
 
 //Output shift register: bits_left counts the bits of the byte still to send after the one on mosi, and out_bits
 //holds them. mosi takes bit 7 of tx_byte when the byte is taken and the next bit at each sck_fall, and returns to 0
@@ -217,6 +248,7 @@ always_ff @(posedge clk or negedge rst_n)
             mosi        <= out_bits[6];
         else if(sel_rise)
             mosi        <= 1'b0;
+
 
 //Chip selects and dc: the frame's device is selected when its first byte is taken, cs_lcd_n low for the screen and
 //cs_tp_n low for the touch controller. dc takes tx_dc with each byte. sel_rise is 1 at the end of TAIL, one half
@@ -249,6 +281,11 @@ always_ff @(posedge clk or negedge rst_n)
             cs_lcd_n    <= 1'b1;
             cs_tp_n     <= 1'b1;
             end
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  4. Receiving the touch controller's bytes
+//--------------------------------------------------------------------------------------------------------------------
 
 //Receive shift register: during a touch frame rx_byte takes miso_s in the last clock of each high half period of
 //sck, the clock before sck falls. rx_valid is 1 for the clock after the eighth capture, and rx_byte holds the byte

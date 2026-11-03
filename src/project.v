@@ -53,6 +53,21 @@ module tt_um_talivick_digit_reader #(
     input  wire       rst_n     // reset_n - low to reset
 );
 
+
+//The blocks and what passes between them; dp_img, dp_walk and dp_acc are built only with HAS_DIGIT = 1:
+//    from           to                             what passes
+//    the host       cmd_dec                        a byte on ui_in with in_valid; in_ready goes back
+//    cmd_dec        seg7, dp_img, dp_walk, dp_acc  the command bus: cmd, arg_we, arg_byte and go, arg_idx where needed
+//    cmd_dec        ctrl                           the register bus: reg_we, reg_addr and reg_wdata; mx_start, err_clr
+//    cmd_dec        mx_top                         MX_ROW's row; MX_READ's result goes back
+//    ctrl           mx_top                         the weights, the configuration and stream_en; row_pop, res_pop back
+//    ctrl, mx_top   cmd_dec                        the status: mx_busy, mx_done, mx_err and fifo_count
+//    dp_img         dp_walk                        the pixel pair requested
+//    dp_walk        mx_top                         weights and a row through the dp_ port; the column sums go back
+//    dp_walk        dp_acc                         the adds into the accumulator ring
+//    dp_acc         cmd_dec, seg7                  the score requested, the winner and win_valid; am_done to seg7
+//    cmd_dec, seg7  the pins                       uo_out: resp_byte while resp_oe is 1, else seg
+
 // the synchronizers
 logic               rst_n_s;
 logic               in_valid_s;
@@ -195,6 +210,11 @@ logic               ma_clr;
 logic               ma_pe;
 logic signed [16:0] ma_b;
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  1. The synchronizers
+//--------------------------------------------------------------------------------------------------------------------
+
 //Synchronizers: all three are instances of sync2. i_rst_sync makes the chip's reset: its d is tied to 1 and it
 //resets to 0, so rst_n_s falls at once when the pad's rst_n falls and rises on the second or third clock edge after
 //rst_n rises. Its two flops are the only ones the pad's rst_n reaches; every other flop with a reset takes rst_n_s,
@@ -205,6 +225,11 @@ sync2 #(.RST_VAL (1'b0)) i_rst_sync (.clk, .rst_n, .d(1'b1), .q(rst_n_s));
 sync2 #(.RST_VAL (1'b1)) i_sync_valid (.clk, .rst_n(rst_n_s), .d(uio_in[7]), .q(in_valid_s));
 
 sync2 #(.RST_VAL (1'b0)) i_sync_miso (.clk, .rst_n(rst_n_s), .d(uio_in[5]), .q(miso_s));
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  2. The blocks always built
+//--------------------------------------------------------------------------------------------------------------------
 
 //Command decoder: it runs the handshake with the host, splits each transfer into the command byte, its
 //arguments and its responses, answers ID and STATUS itself, and drives the command bus and the register bus to
@@ -258,6 +283,7 @@ cmd_dec #(
     .tch_bias_ok       //TCH_READ: the bias word is at the teach ring's head
     );
 
+
 //Matrix control: it holds the matrix registers, counts the rows of a run and lets them stream into the
 //array, and reports mx_busy, mx_done and mx_err.
 ctrl i_ctrl(
@@ -282,6 +308,7 @@ ctrl i_ctrl(
     .mx_done,               //status: the last run finished
     .mx_err                 //status: an error since the last err_clr
     );
+
 
 //Matrix unit: the row FIFO, the 2x2 array and the requant stage. Host rows enter through the FIFO. The digit
 //reader, teach mode and attract mode enter through the dp_ port, and the two modes reach the requant stage
@@ -322,6 +349,7 @@ mx_top i_mx_top(
     .ma_neg                 //sign of the 19-bit sum, from requant
     );
 
+
 //7-segment readout: seg is the pattern on uo_out whenever no response is on it: a pattern the host wrote, or
 //the digit the argmax picked.
 seg7 i_seg7 (
@@ -336,6 +364,11 @@ seg7 i_seg7 (
     .win_valid,             //valid of winner
     .seg                    //registered {dp, g, f, e, d, c, b, a}, active high; reset 0x40
     );
+
+
+//--------------------------------------------------------------------------------------------------------------------
+//  3. The optional blocks
+//--------------------------------------------------------------------------------------------------------------------
 
 //Optional blocks: one if block per parameter. When a block is not built, the else block ties every net it
 //would drive: the SPI lines to their idle levels, every other net to 0, so the rest of the chip sees no busy, no
@@ -509,29 +542,39 @@ generate
 
 endgenerate
 
+
+//--------------------------------------------------------------------------------------------------------------------
+//  4. The wiring and the pins
+//--------------------------------------------------------------------------------------------------------------------
+
 //Top-level wiring: disp_busy and walk_busy make the decoder hold its next command byte. The dp_ port
 //and the ma_ port are shared: one block drives a port at a time and the others drive 0, so each OR passes the
 //active block's value. dp_a_valid is the tile walker's alone; teach mode and attract mode present no valid.
-assign disp_busy  = ds_busy | tp_busy | spi_busy;
-assign walk_busy  = wk_busy | am_busy | t_busy | att_busy;
-assign dp_sel     = wk_sel | tch_sel | att_sel;
-assign dp_w_ld    = wk_w_ld | tch_w_ld | att_w_ld;
-assign dp_w       = wk_w | tch_w | att_w;
-assign dp_a       = wk_a | tch_a | att_a;
+assign disp_busy  = ds_busy | tp_busy | spi_busy;             //disp_seq, touch_rd or spi_master is busy
+assign walk_busy  = wk_busy | am_busy | t_busy | att_busy;    //dp_walk, dp_acc, teach or attract is busy
+assign dp_sel     = wk_sel | tch_sel | att_sel;               //dp_walk, teach or attract owns the array
+assign dp_w_ld    = wk_w_ld | tch_w_ld | att_w_ld;            //the owner's weight load bits
+assign dp_w       = wk_w | tch_w | att_w;                     //the owner's weights
+assign dp_a       = wk_a | tch_a | att_a;                     //the owner's row
 assign dp_a_valid = wk_a_valid;
+
 
 //Ring requests: the image ring has two readers, the walker and the display, and the accumulator ring three, the
 //walker, the display and the decoder. The walker's request wins while it runs, then the display's while it
 //runs, then the decoder's.
-assign pair_req   = wk_busy ? walk_pair_req : disp_pair_req;
-assign pair_idx   = wk_busy ? walk_pair_idx : disp_pair_idx;
-assign acc_req    = wk_busy ? walk_acc_req : (disp_busy ? disp_acc_req : dec_acc_req);
-assign acc_idx    = wk_busy ? walk_acc_idx : (disp_busy ? disp_acc_idx : dec_acc_idx);
+assign pair_req   = wk_busy ? walk_pair_req : disp_pair_req;                               //to the image ring
+assign pair_idx   = wk_busy ? walk_pair_idx : disp_pair_idx;                               //the pair requested
+assign acc_req    = wk_busy ? walk_acc_req : (disp_busy ? disp_acc_req : dec_acc_req);     //to the accumulator ring
+assign acc_idx    = wk_busy ? walk_acc_idx : (disp_busy ? disp_acc_idx : dec_acc_idx);     //the accumulator requested
+
+
+//The nets of the ma_ port, from teach mode and attract mode into requant's adder.
 assign ma_sel     = tch_ma_sel | att_ma_sel;
 assign ma_we      = tch_ma_we | att_ma_we;
 assign ma_clr     = tch_ma_clr | att_ma_clr;
 assign ma_pe      = tch_ma_pe | att_ma_pe;
 assign ma_b       = tch_ma_b | att_ma_b;
+
 
 //Pins: uo_out carries the response while resp_oe is 1 and the 7-segment pattern otherwise. uio bits 5 and 7
 //are inputs; their output path reads 0.
@@ -541,11 +584,11 @@ assign uio_out = {1'b0, in_ready, 1'b0, cs_tp_n, cs_lcd_n, dc, mosi, sck};
 
 assign uio_oe  = 8'b0101_1111;
 
-//Unused signals: the inputs and outputs nothing reads in this form, gathered in one reduction as the template does, so the lint
-//does not report them.
+
+//Unused signals: the inputs and the block outputs that some choice of the four parameters leaves unread, gathered
+//in one reduction as the template does, so the lint does not report them.
 wire unused = &{1'b0, ena, uio_in[6], uio_in[4:0], miso_s, arg_idx, dp_p, dp_p_valid, ma_q, ma_neg, dec_acc_req, dec_acc_idx,
                 img_head0, img_head8, img_at0, pair_req, pair_idx, acc_req, acc_idx, pair, pair_ack, acc_add, acc_add_val,
                 img_seek0, img_step, img_split, img_en_a, img_tail_a, img_en_b, img_tail_b};
-
 
 endmodule

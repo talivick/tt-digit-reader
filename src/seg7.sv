@@ -48,10 +48,12 @@ logic [7:0] digit;     //the winner's 7-segment pattern, from the table below
 logic [7:0] win_pat;   //the digit while win_valid is 1, else every segment off
 logic [7:0] seg_next;  //what seg loads at the next edge: win_pat in winner mode, seg_pat in pattern mode
 
+
 //Command strobes: SEG_SHOW has one argument byte, so its arg_we and its go come in
 //the same clock; the pattern is taken with arg_we. SEG_WINNER has no argument, so its go marks it.
 assign seg_show = arg_we & (cmd == address_map::CMD_SEG_SHOW);
 assign seg_win = (go & (cmd == address_map::CMD_SEG_WINNER)) | am_done;
+
 
 //Pattern register and mode: SEG_SHOW writes the pattern and selects pattern mode in the same
 //clock. When seg_show and seg_win arrive in one clock, seg_show wins.
@@ -72,28 +74,37 @@ always_ff @(posedge clk or negedge rst_n)
             seg_mode    <= 1'b1;
         end
 
+
 //Digit table: the segment pattern of each digit 0 to 9 as {dp, g, f, e, d, c, b, a}, active high; dp stays 0.
 //Winner values 10 to 15 do not occur and show nothing.
+//The segments on the digit, and beside each row the segments it lights:
+//     --a--
+//    f     b
+//     --g--
+//    e     c
+//     --d--  dp
 always_comb
     case(winner)
-    4'd0: digit = 8'h3F;
-    4'd1: digit = 8'h06;
-    4'd2: digit = 8'h5B;
-    4'd3: digit = 8'h4F;
-    4'd4: digit = 8'h66;
-    4'd5: digit = 8'h6D;
-    4'd6: digit = 8'h7D;
-    4'd7: digit = 8'h07;
-    4'd8: digit = 8'h7F;
-    4'd9: digit = 8'h6F;    
-    default: digit = 8'h00;
+    4'd0: digit = 8'h3F;        //a b c d e f
+    4'd1: digit = 8'h06;        //b c
+    4'd2: digit = 8'h5B;        //a b d e g
+    4'd3: digit = 8'h4F;        //a b c d g
+    4'd4: digit = 8'h66;        //b c f g
+    4'd5: digit = 8'h6D;        //a c d f g
+    4'd6: digit = 8'h7D;        //a c d e f g
+    4'd7: digit = 8'h07;        //a b c
+    4'd8: digit = 8'h7F;        //a b c d e f g
+    4'd9: digit = 8'h6F;        //a b c d f g
+    default: digit = 8'h00;     //none
     endcase
     
 assign win_pat = win_valid ? digit : 8'h00;
 
+
 //Output register: seg loads at every edge, so a change of the pattern, the mode, the winner or
 //win_valid reaches the pins one edge later.
 assign seg_next = seg_mode ? win_pat : seg_pat;
+
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         seg     <= 8'h40;

@@ -29,6 +29,7 @@
 
 package address_map;
 
+
 // ---- command codes ----------------------------------------------------------------------------------
 // accepted at any time (cmd_dec)
 localparam logic [7:0] CMD_NOP         = 8'h00; // no arguments, no response
@@ -57,7 +58,7 @@ localparam logic [7:0] CMD_DRAW_DIGIT  = 8'h43; // arguments: ten bytes, a digit
 localparam logic [7:0] CMD_ATT_FRAME   = 8'h44; // arguments: six bytes; attract mode, not in this build
 localparam logic [7:0] CMD_PT_CMD      = 8'h48; // argument: one byte sent to the LCD as a command (dc = 0)
 localparam logic [7:0] CMD_PT_DAT      = 8'h49; // argument: one byte sent to the LCD as data (dc = 1)
-// touch controller (touch_rd)
+// touch controller (touch_rd); in TP_READ's response v is the 12-bit conversion the controller returns
 localparam logic [7:0] CMD_TP_READ     = 8'h50; // argument: the XPT2046 control byte; response: {4'b0, v[11:8]}, v[7:0]
 // teach mode (teach, tch_ring)
 localparam logic [7:0] CMD_TCH_CLEAR   = 8'h70; // clears the weights and the bias
@@ -65,6 +66,7 @@ localparam logic [7:0] CMD_TCH_SCORE   = 8'h71; // scores the image against the 
 localparam logic [7:0] CMD_TCH_LEARN   = 8'h72; // argument: the label in bit 0; updates the weights when the score is within the margin
 localparam logic [7:0] CMD_TCH_READ    = 8'h73; // response: score high, score low, {7'b0, learned}, bias
 localparam logic [7:0] CMD_TCH_MAP     = 8'h74; // arguments: fourteen bytes; draws the weights on the LCD as an image
+
 
 // ---- register addresses, written with REG_WR ----------------------------------------------------------
 // LCD opcodes and pixel format (disp_seq); the opcodes are the ILI9341's
@@ -102,6 +104,7 @@ localparam logic [7:0] REG_TMARGIN_HI  = 8'h1F; // reset 0x00: the learning marg
 localparam logic [7:0] REG_TMARGIN_LO  = 8'h20; // reset 0x7C: the learning margin, bits 7:0 (reset margin 124)
 localparam logic [7:0] REG_TEACH_FIRST = 8'h1E;
 localparam logic [7:0] REG_TEACH_LAST  = 8'h20;
+
 
 // ---- responses --------------------------------------------------------------------------------------
 localparam logic [7:0] ID_BYTE0        = 8'h44; // ID's first byte; the second is {teach present, attract present, 6-bit form code}
