@@ -55,7 +55,7 @@ module tt_um_talivick_digit_reader #(
 
 
 //The blocks and what passes between them; dp_img, dp_walk and dp_acc are built only with HAS_DIGIT = 1, spi_master,
-//disp_seq and touch_rd only with HAS_DISPLAY = 1:
+//disp_seq and touch_rd only with HAS_DISPLAY = 1, tch_ring and teach only with HAS_TEACH = 1:
 //    from           to                             what passes
 //    the host       cmd_dec                        a byte on ui_in with in_valid; in_ready goes back
 //    cmd_dec        seg7, dp_img, dp_walk, dp_acc  the command bus: cmd, arg_we, arg_byte and go, arg_idx where needed
@@ -75,6 +75,13 @@ module tt_um_talivick_digit_reader #(
 //    touch_rd       cmd_dec                        tp_value and tp_valid, TP_READ's conversion and its flag
 //    disp_seq       dp_img, dp_acc                 requests into the two rings, muxed with the walker's and decoder's
 //    spi_master     the pins                       sck, mosi, dc and the two selects on uio_out[4:0]
+//    cmd_dec        teach                          the command bus and the register bus
+//    tch_ring       teach                          the head weight and its position; the tail's value goes back
+//    teach          mx_top, requant                weights and a row through the dp_ port; the adder strobes and addend
+//    requant        teach                          ma_q, the running sum, and its sign
+//    teach          dp_img                         seek byte 0 and step; the head byte and img_at0 come back
+//    teach          cmd_dec                        TCH_READ's words; t_busy into walk_busy
+//    disp_seq       teach                          the weight map's requests; the weight and its acknowledge go back
 
 // the synchronizers
 logic               rst_n_s;
@@ -637,6 +644,62 @@ generate
 
   if(HAS_TEACH)
   begin: with_teach
+    //Teach mode: the weight ring and the teach control. The ring brings one of the 65 weights to its head every
+    //clock; teach scores the image ring's image through the array's dp_ port and requant's adder, learns, and
+    //answers TCH_READ and the display's weight map requests. Only the four nets between the two live here.
+    logic        [1:0]  tr_sel;
+    logic signed [5:0]  tr_in;
+    logic signed [5:0]  tr_head;
+    logic        [6:0]  tr_hpos;
+
+    tch_ring i_tch_ring(
+        .clk,            //rising edge
+        .rst_n(rst_n_s), //asynchronous, active low; resets tr_hpos only
+        .tr_sel,         //what the tail takes: 0 or 3 the head (keep), 1 tr_in (update), 2 zero (clear)
+        .tr_in,          //the updated weight
+        .tr_head,        //the word at the head
+        .tr_hpos         //the head position: 0 to 63 a pixel's weight, 64 the bias
+        );
+
+    teach i_teach(
+        .clk,            //rising edge
+        .rst_n(rst_n_s), //asynchronous, active low; resets TSTEP, TMARGIN, LEARNED, the phase and the counter
+        .cmd,            //the command byte; TCH_CLEAR, TCH_SCORE, TCH_LEARN and its label byte
+        .arg_we,         //pulse: an argument byte is on arg_byte
+        .arg_byte,       //the argument byte
+        .go,             //pulse: the command is complete, after its last argument
+        .reg_we,         //register write strobe; TSTEP 0x1E, TMARGIN 0x1F and 0x20
+        .reg_addr,       //register address
+        .reg_wdata,      //register write data
+        .tr_sel,         //what the ring's tail takes
+        .tr_in,          //the updated weight, to the ring
+        .tr_head,        //the word at the ring's head
+        .tr_hpos,        //the head position
+        .img_seek0,      //move byte 0 to the image ring's head
+        .img_step,       //step the image ring one byte
+        .img_head0,      //the image ring's head byte
+        .img_at0,        //the head is byte 0
+        .tch_sel,        //teach owns the array's dp_ port
+        .tch_w_ld,       //weight load bits into the array
+        .tch_w,          //the weights into the array
+        .tch_a,          //one row into the array
+        .tch_ma_sel,     //requant's adder is in use
+        .tch_ma_we,      //write PH, the running sum
+        .tch_ma_clr,     //read PH as 0 in this clock's add
+        .tch_ma_pe,      //add p0, the array's first product
+        .tch_ma_b,       //the addend
+        .ma_q,           //PH, from requant
+        .ma_neg,         //sign of the 19-bit sum, from requant
+        .tch_score,      //TCH_READ: the score
+        .tch_learned,    //TCH_READ: LEARNED
+        .tch_bias,       //TCH_READ: the bias word
+        .tch_bias_ok,    //TCH_READ: the bias word is at the head
+        .wm_req,         //TCH_MAP's weight request, from disp_seq
+        .wm_idx,         //the weight requested
+        .wm_w,           //the requested weight, sign-extended
+        .wm_ack,         //the weight is the one requested
+        .t_busy          //a teach command in progress
+        );
   end
   else
   begin: without_teach
