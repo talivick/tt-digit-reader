@@ -4,7 +4,7 @@
 # test.py : the test the flow runs on the top, on the RTL and again on the gate-level netlist
 #
 # Description
-#   The test bench tb.v holds the top with its default parameters, which build the matrix unit alone.
+#   The test bench tb.v holds the top with its default parameters, which build the full chip.
 #   This test speaks to it as the host does: one byte per four-phase handshake on ui_in, in_valid on
 #   uio_in bit 7, in_ready on uio_out bit 6, and uo_out read while the byte is a response. It checks
 #   the levels of the three output ports in reset and after it, then ID, then STATUS twice, so the
@@ -33,7 +33,7 @@ UIO_OE          = 0x5F    # uio bits 0 to 4 and 6 are outputs, bits 5 and 7 inpu
 ID              = 0x01    # the command: two response bytes, 0x44 and the form byte
 STATUS          = 0x02    # the command: three response bytes S0, S1, S2
 ID_BYTE0        = 0x44    # ID's first byte
-ID_FALLBACK     = 0x02    # ID's second byte with the matrix unit alone: no teach mode, no attract mode, form code 2
+ID_CHIP         = 0x81    # ID's second byte of the chip: teach mode present, attract mode absent, form code 1
 RST_SEEN        = 0x80    # S1 bit 7: set by a reset, cleared when STATUS supplies S1
 HANDSHAKE_CLKS  = 200     # clocks one handshake may take before the test fails
 
@@ -106,10 +106,10 @@ async def test_top(dut):
     await FallingEdge(dut.clk)
     check_pins(dut, "after the reset release")
 
-    # ID: 0x44, then the form byte of the build with the matrix unit alone.
+    # ID: 0x44, then the chip's form byte.
     dut._log.info("ID")
     got = await transfer(dut, ID, 2)
-    assert got == [ID_BYTE0, ID_FALLBACK], f"ID returned {[hex(b) for b in got]}; expected [0x44, 0x02]"
+    assert got == [ID_BYTE0, ID_CHIP], f"ID returned {[hex(b) for b in got]}; expected [0x44, 0x81]"
 
     # STATUS twice: S1 shows the reset the first time and clears when that S1 is supplied; S0 and S2
     # are 0 with nothing running, no result waiting and no winner.

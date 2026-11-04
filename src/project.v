@@ -38,9 +38,9 @@
 `default_nettype none
 
 module tt_um_talivick_digit_reader #(
-    parameter bit HAS_DIGIT = 1'b0,    //1 builds the digit reader (dp_img, dp_walk, dp_acc); 0 in the fallback
-    parameter bit HAS_DISPLAY = 1'b0,  //1 builds the display (spi_master, disp_seq, touch_rd)
-    parameter bit HAS_TEACH = 1'b0,    //1 builds teach mode (tch_ring, teach)
+    parameter bit HAS_DIGIT = 1'b1,    //1 builds the digit reader (dp_img, dp_walk, dp_acc); 0 in the fallback
+    parameter bit HAS_DISPLAY = 1'b1,  //1 builds the display (spi_master, disp_seq, touch_rd)
+    parameter bit HAS_TEACH = 1'b1,    //1 builds teach mode (tch_ring, teach)
     parameter bit HAS_ATTRACT = 1'b0   //1 builds attract mode (attract); 0 in the chip
 ) (
     input  wire [7:0] ui_in,    // Dedicated inputs
