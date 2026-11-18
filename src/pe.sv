@@ -48,7 +48,8 @@ always_ff @(posedge clk)
     end
     
 
-always_ff @(posedge clk or negedge rst_n) //asynchronous clear; rst_n comes from the top's reset synchronizer, so it falls at once and rises on a clock edge
+//asynchronous clear; rst_n comes from the top's reset synchronizer, so it falls at once and rises on a clock edge
+always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)  
         v_out <= 'sd0;
     else if(en)

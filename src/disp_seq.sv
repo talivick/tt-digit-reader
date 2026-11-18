@@ -17,15 +17,15 @@
 //   The "reg_" ports write OP_CASET, OP_PASET and OP_RAMWR (0x00 to 0x02), the window
 //   opcodes, and PIXFMT (0x03), 0 for RGB565 and 1 for 18-bit pixels.
 //   The command bus brings DRAW_RECT, DRAW_IMG, DRAW_BARS, DRAW_DIGIT, TCH_MAP, PT_CMD
-//   and PT_DAT; "go" starts the frame. A window is 11 bytes, then its pixels in raster
-//   order, x fastest. Each byte waits on the "ds_tx_" ports until "ds_tx_ready".
+//   and PT_DAT; "go_ps" starts the frame. A window is 11 bytes, then its pixels in raster
+//   order, x fastest. Each byte waits on the "ds_tx_" ports until "ds_tx_ready_ps".
 //   DRAW_IMG reads the image ring ("disp_pair_" ports), DRAW_BARS the accumulator ring
 //   ("disp_acc_" ports) and the winner, TCH_MAP the teach weights ("wm_" ports); each
 //   pixel that needs such a value waits for its acknowledge.
 //   PT_CMD and PT_DAT send one byte as a one-byte frame, with "ds_tx_dc" 0 and 1.
 //
 // Timing
-//   "ds_busy" is high from the clock after "go" and low by the third clock after the
+//   "ds_busy" is high from the clock after "go_ps" and low by the third clock after the
 //   clock in which "spi_busy" falls. A 320 by 240 RGB565 clear, 11 window bytes and
 //   153,600 pixel bytes at 32 clocks each, takes 196.62 ms at the reset dividers.
 //
@@ -39,44 +39,44 @@
 module disp_seq #(
     parameter bit HAS_ATTRACT = 1'b0    //with 0 a generate block leaves out the ATT_FRAME path
 ) (
-    input  logic               clk,            //rising edge
-    input  logic               rst_n,          //asynchronous, active low; resets the four registers and the state
-    input  logic        [7:0]  cmd,            //the command byte; DRAW_*, PT_*, TCH_MAP, ATT_FRAME
-    input  logic               arg_we,         //pulse: an argument byte is on arg_byte
-    input  logic        [3:0]  arg_idx,        //the argument's index, 0 first
-    input  logic        [7:0]  arg_byte,       //the argument byte
-    input  logic               go,             //pulse: the command is complete, after its last argument
-    input  logic               reg_we,         //register write strobe; 0x00 to 0x03
-    input  logic        [7:0]  reg_addr,       //register address
-    input  logic        [7:0]  reg_wdata,      //register write data
-    output logic               ds_tx_valid,    //byte request to spi_master (tx_dev = 0)
-    output logic        [7:0]  ds_tx_byte,     //the byte to send
-    output logic               ds_tx_dc,       //dc level for the byte
-    output logic               ds_tx_last,     //ends the frame
-    input  logic               ds_tx_ready,    //spi_master's tx_ready, gated by the top
-    input  logic               spi_busy,       //the frame's end
-    output logic               disp_pair_req,  //DRAW_IMG's request to the image ring
-    output logic        [4:0]  disp_pair_idx,  //the pair requested
-    input  logic        [3:0]  pair,           //the pair, from dp_img
-    input  logic               pair_ack,       //the pair is the one requested
-    output logic               disp_acc_req,   //DRAW_BARS's request to the accumulator ring
-    output logic        [3:0]  disp_acc_idx,   //the accumulator requested
-    input  logic signed [11:0] acc_val,        //the ring's head, from dp_acc
-    input  logic               acc_ack,        //the head is the one requested
-    input  logic        [3:0]  winner,         //from dp_acc
-    input  logic               win_valid,      //valid of winner
-    output logic               wm_req,         //TCH_MAP's weight request
-    output logic        [5:0]  wm_idx,         //the weight requested
-    input  logic signed [7:0]  wm_w,           //the weight, from teach
-    input  logic               wm_ack,         //the weight is the one requested
-    output logic        [7:0]  att_cx,         //ATT_FRAME's CX argument, to attract
-    output logic        [6:0]  att_cy,         //ATT_FRAME's CY argument, to attract
-    output logic               att_relu,       //ATT_FRAME's ReLU argument, to attract
-    input  logic        [2:0]  att_ch_we,      //attract's channel write strobes into the next-color register
-    input  logic        [7:0]  att_ch_val,     //the channel value written
-    input  logic               att_full,       //the next color is complete
-    output logic               att_take,       //pulse: the next color moved to the current color
-    output logic               ds_busy         //a frame in progress; low by the third clock after spi_busy falls
+    input  logic               clk,             //rising edge
+    input  logic               rst_n,           //asynchronous, active low; resets the four registers and the state
+    input  logic        [7:0]  cmd,             //the command byte; DRAW_*, PT_*, TCH_MAP, ATT_FRAME
+    input  logic               arg_valid,       //pulse: an argument byte is on arg_byte
+    input  logic        [3:0]  arg_idx,         //the argument's index, 0 first
+    input  logic        [7:0]  arg_byte,        //the argument byte
+    input  logic               go_ps,           //pulse: the command is complete, after its last argument
+    input  logic               reg_we,          //register write strobe; 0x00 to 0x03
+    input  logic        [7:0]  reg_addr,        //register address
+    input  logic        [7:0]  reg_wdata,       //register write data
+    output logic               ds_tx_valid,     //byte request to spi_master (tx_dev = 0)
+    output logic        [7:0]  ds_tx_byte,      //the byte to send
+    output logic               ds_tx_dc,        //dc level for the byte
+    output logic               ds_tx_last,      //ends the frame
+    input  logic               ds_tx_ready_ps,  //spi_master's tx_ready_ps, gated by the top
+    input  logic               spi_busy,        //the frame's end
+    output logic               disp_pair_req,   //DRAW_IMG's request to the image ring
+    output logic        [4:0]  disp_pair_idx,   //the pair requested
+    input  logic        [3:0]  pair,            //the pair, from dp_img
+    input  logic               pair_ack,        //the pair is the one requested
+    output logic               disp_acc_req,    //DRAW_BARS's request to the accumulator ring
+    output logic        [3:0]  disp_acc_idx,    //the accumulator requested
+    input  logic signed [11:0] acc_val,         //the ring's head, from dp_acc
+    input  logic               acc_ack,         //the head is the one requested
+    input  logic        [3:0]  winner,          //from dp_acc
+    input  logic               win_valid,       //valid of winner
+    output logic               wm_req,          //TCH_MAP's weight request
+    output logic        [5:0]  wm_idx,          //the weight requested
+    input  logic signed [7:0]  wm_w,            //the weight, from teach
+    input  logic               wm_ack,          //the weight is the one requested
+    output logic        [7:0]  att_cx,          //ATT_FRAME's CX argument, to attract
+    output logic        [6:0]  att_cy,          //ATT_FRAME's CY argument, to attract
+    output logic               att_relu,        //ATT_FRAME's ReLU argument, to attract
+    input  logic        [2:0]  att_ch_we,       //attract's channel write strobes into the next-color register
+    input  logic        [7:0]  att_ch_val,      //the channel value written
+    input  logic               att_full,        //the next color is complete
+    output logic               att_take_ps,     //pulse: the next color moved to the current color
+    output logic               ds_busy          //a frame in progress; low by the third clock after spi_busy falls
 );
 
 logic        [7:0]  op_caset;
@@ -95,8 +95,8 @@ logic        [2:0]  r;
 logic        [3:0]  bar_idx;
 logic        [10:0] bar_col;
 logic        [8:0]  len;
-logic               go_draw;
-logic               go_pass;
+logic               go_draw_ps;
+logic               go_pass_ps;
 logic        [8:0]  arg_x;
 logic        [8:0]  arg_y;
 logic        [8:0]  arg_w;
@@ -116,9 +116,9 @@ logic        [10:0] y0;
 logic        [10:0] y1;
 logic        [7:0]  head_byte;
 logic               head_dc;
-logic               take;
+logic               take_ps;
 logic               pix_last;
-logic               pix_done;
+logic               pix_done_ps;
 logic               row_last;
 logic               win_last;
 logic               u_wrap;
@@ -190,15 +190,16 @@ always_comb
     default:                        cmd_code = D_NONE;
     endcase
 
-assign go_draw = (state == IDLE) & go & (cmd_code != D_NONE);                   //a display command's go, in IDLE only
-assign go_pass = go_draw & ((cmd_code == D_PTCMD) | (cmd_code == D_PTDAT));     //a pass-through command's go
+//a display command's go_ps, in IDLE only
+assign go_draw_ps = (state == IDLE) & go_ps & (cmd_code != D_NONE);
+assign go_pass_ps = go_draw_ps & ((cmd_code == D_PTCMD) | (cmd_code == D_PTDAT));     //a pass-through command's go_ps
 
 always_ff @(posedge clk)
     begin
-    if(arg_we & (cmd_code != D_NONE))
+    if(arg_valid & (cmd_code != D_NONE))
         arg[arg_idx]    <= arg_byte;    //argument byte k of the command arriving
 
-    if(go_draw)
+    if(go_draw_ps)
         drawn           <= cmd_code;    //the code of the frame drawn from now
     end
 
@@ -225,7 +226,7 @@ assign arg_d    = arg[5][3:0];                  //D, the digit to draw: 0 to 9, 
 //--------------------------------------------------------------------------------------------------------------------
 
 //State machine: a frame is a window of 11 bytes, then its pixels in raster order, x fastest; a bar frame repeats that
-//for each of the ten bars. IDLE waits for a go; START sizes the window and skips an empty one; FETCH waits for the
+//for each of the ten bars. IDLE waits for a go_ps; START sizes the window and skips an empty one; FETCH waits for the
 //bar's score; WINDOW sends the 11 bytes; PIXELS sends the pixels; PASS sends the one pass-through byte; DONE waits
 //for the frame to leave the bus.
 always_ff @(posedge clk or negedge rst_n)
@@ -236,8 +237,8 @@ always_ff @(posedge clk or negedge rst_n)
 
 always_comb
     case(state)
-    IDLE:   if(go_pass)                                 next_state = PASS;
-            else if(go_draw)                            next_state = START;
+    IDLE:   if(go_pass_ps)                              next_state = PASS;
+            else if(go_draw_ps)                         next_state = START;
             else                                        next_state = IDLE;
 
     START:  if((win_w == 9'd0) | (win_h == 9'd0))       next_state = DONE;
@@ -247,14 +248,14 @@ always_comb
     FETCH:  if(acc_ack)                                 next_state = WINDOW;
             else                                        next_state = FETCH;
 
-    WINDOW: if(take & (head_n == 4'd10))                next_state = PIXELS;
+    WINDOW: if(take_ps & (head_n == 4'd10))             next_state = PIXELS;
             else                                        next_state = WINDOW;
 
-    PIXELS: if(pix_done & win_last & ~bar_last)         next_state = FETCH;
-            else if(pix_done & win_last)                next_state = DONE;
+    PIXELS: if(pix_done_ps & win_last & ~bar_last)      next_state = FETCH;
+            else if(pix_done_ps & win_last)             next_state = DONE;
             else                                        next_state = PIXELS;
 
-    PASS:   if(take)                                    next_state = DONE;
+    PASS:   if(take_ps)                                 next_state = DONE;
             else                                        next_state = PASS;
 
     DONE:   if(~spi_busy)                               next_state = IDLE;
@@ -304,7 +305,7 @@ assign y1 = y0 + {2'd0, win_h} - 11'd1;                     //the last row
 always_ff @(posedge clk)
     if(state != WINDOW)
         head_n      <= 4'd0;                //the byte offered; 0 outside WINDOW, so a window starts at its first byte
-    else if(take)
+    else if(take_ps)
         head_n      <= head_n + 4'd1;       //the next byte once this one is taken
 
 always_comb
@@ -331,33 +332,33 @@ assign head_dc = (head_n != 4'd0) & (head_n != 4'd5) & (head_n != 4'd10);       
 
 //Pixel counters: a pixel is two bytes in RGB565 and three in 18-bit color, and the counters step when a pixel's last
 //byte is taken. px and py are the pixel's column and row inside the window, 0 at the top left, x fastest.
-assign take     = ds_tx_valid & ds_tx_ready;                      //a byte accepted by spi_master
+assign take_ps  = ds_tx_valid & ds_tx_ready_ps;                   //a byte accepted by spi_master
 assign pix_last = pixfmt ? (byte_n == 2'd2) : (byte_n == 2'd1);    //the pixel's last byte
 
 always_ff @(posedge clk)
     if(state != PIXELS)
         byte_n      <= 2'd0;                //the byte of the pixel being sent
-    else if(take & pix_last)
+    else if(take_ps & pix_last)
         byte_n      <= 2'd0;                //the pixel is complete
-    else if(take)
+    else if(take_ps)
         byte_n      <= byte_n + 2'd1;       //its next byte
 
-assign pix_done = (state == PIXELS) & take & pix_last;            //a pixel's last byte taken: the counters step
+assign pix_done_ps = (state == PIXELS) & take_ps & pix_last;      //a pixel's last byte taken: the counters step
 assign row_last = (px == win_w - 9'd1);                           //the last pixel of a row
 assign win_last = row_last & (py == (win_h - 9'd1));              //the last pixel of the window
 
 always_ff @(posedge clk)
     if(state != PIXELS)
         px      <= 9'd0;                    //the pixel's column in the window
-    else if(pix_done & row_last)
+    else if(pix_done_ps & row_last)
         px      <= 9'd0;                    //back to the left at a row's end
-    else if(pix_done)
+    else if(pix_done_ps)
         px      <= px + 9'd1;               //the next column
 
 always_ff @(posedge clk)
     if(state != PIXELS)
         py      <= 9'd0;                    //the pixel's row in the window
-    else if(pix_done & row_last)
+    else if(pix_done_ps & row_last)
         py      <= py + 9'd1;               //the next row
 
 
@@ -369,17 +370,17 @@ assign u_wrap = (u == (arg_s - 6'd1));          //the last column of a cell
 always_ff @(posedge clk)
     if(state != PIXELS)
         u       <= 6'd0;                        //the column inside the cell, 0 to S - 1
-    else if(pix_done & (row_last | u_wrap))
+    else if(pix_done_ps & (row_last | u_wrap))
         u       <= 6'd0;                        //the next cell starts, or the row ends
-    else if(pix_done)
+    else if(pix_done_ps)
         u       <= u + 6'd1;                    //the next column in the cell
 
 always_ff @(posedge clk)
     if(state != PIXELS)
         c       <= 3'd0;                        //the cell's column, 0 to 7, or 0 to 4 for a digit
-    else if(pix_done & row_last)
+    else if(pix_done_ps & row_last)
         c       <= 3'd0;                        //back to the first cell at a row's end
-    else if(pix_done & u_wrap)
+    else if(pix_done_ps & u_wrap)
         c       <= c + 3'd1;                    //the next cell when this one's last column is done
 
 assign v_wrap = (v == arg_s - 6'd1);            //the last row of a cell
@@ -387,15 +388,15 @@ assign v_wrap = (v == arg_s - 6'd1);            //the last row of a cell
 always_ff @(posedge clk)
     if(state != PIXELS)
         v       <= 6'd0;                        //the row inside the cell, 0 to S - 1
-    else if(pix_done & row_last & v_wrap)
+    else if(pix_done_ps & row_last & v_wrap)
         v       <= 6'd0;                        //the next cell row starts
-    else if(pix_done & row_last)
+    else if(pix_done_ps & row_last)
         v       <= v + 6'd1;                    //the next row in the cell, once per pixel row
 
 always_ff @(posedge clk)
     if(state != PIXELS)
         r       <= 3'd0;                        //the cell's row, 0 to 7, or 0 to 6 for a digit
-    else if(pix_done & row_last & v_wrap)
+    else if(pix_done_ps & row_last & v_wrap)
         r       <= r + 3'd1;                    //the next cell row
 
 
@@ -481,7 +482,7 @@ always_ff @(posedge clk)
         bar_idx     <= 4'd0;                            //k, the bar drawn
         bar_col     <= {2'd0, arg_x};                   //bar 0's first column, X
         end
-    else if(pix_done & win_last)
+    else if(pix_done_ps & win_last)
         begin
         bar_idx     <= bar_idx + 4'd1;                  //the next bar when a bar's last pixel is taken
         bar_col     <= bar_col + {5'd0, arg_pitch};     //its first column
@@ -685,7 +686,7 @@ generate
         assign att_cx   = 8'd0;
         assign att_cy   = 7'd0;
         assign att_relu = 1'b0;
-        assign att_take = 1'b0;
+        assign att_take_ps = 1'b0;
         end
 endgenerate
 

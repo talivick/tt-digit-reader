@@ -26,7 +26,8 @@
 `default_nettype none
 
 module sync2 #(
-    parameter bit RST_VAL = 1'b0    //reset value of both flops; 1 for in_valid, 0 for the touch data and the reset synchronizer
+    //reset value of both flops; 1 for in_valid, 0 for the touch data and the reset synchronizer
+    parameter bit RST_VAL = 1'b0
 ) (
     input  logic  clk,    //clock
     input  logic  rst_n,  //rst_n_s; the pad reset in the reset synchronizer

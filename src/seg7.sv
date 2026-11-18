@@ -8,10 +8,10 @@
 //   c, b, a}, active high: a pattern the host picks, or the digit the chip read.
 //
 // Operation
-//   The commands arrive on "cmd", "arg_we", "arg_byte" and "go".
+//   The commands arrive on "cmd", "arg_valid", "arg_byte" and "go_ps".
 //   SEG_SHOW (0x10) writes its argument byte into SEG_PAT and selects pattern mode, in
 //   which "seg" shows SEG_PAT.
-//   SEG_WINNER (0x11), or an "am_done" pulse at the end of an argmax, selects winner
+//   SEG_WINNER (0x11), or an "am_done_ps" pulse at the end of an argmax, selects winner
 //   mode, in which "seg" shows the digit "winner" while "win_valid" is high and 0x00
 //   otherwise, with dp off.
 //   Digits 0 to 9 show 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F.
@@ -27,36 +27,36 @@
 `default_nettype none
 
 module seg7 (
-    input  logic       clk,        //rising edge
-    input  logic       rst_n,      //asynchronous, active low; resets seg to 0x40 and the mode
-    input  logic [7:0] cmd,        //the command byte; SEG_SHOW, SEG_WINNER
-    input  logic       arg_we,     //pulse: an argument byte is on arg_byte
-    input  logic [7:0] arg_byte,   //the argument byte
-    input  logic       go,         //pulse: the command is complete, after its last argument
-    input  logic       am_done,    //argmax done pulse, from dp_acc
-    input  logic [3:0] winner,     //the winner, from dp_acc
-    input  logic       win_valid,  //valid of winner
-    output logic [7:0] seg         //registered {dp, g, f, e, d, c, b, a}, active high; reset 0x40
+    input  logic       clk,         //rising edge
+    input  logic       rst_n,       //asynchronous, active low; resets seg to 0x40 and the mode
+    input  logic [7:0] cmd,         //the command byte; SEG_SHOW, SEG_WINNER
+    input  logic       arg_valid,   //pulse: an argument byte is on arg_byte
+    input  logic [7:0] arg_byte,    //the argument byte
+    input  logic       go_ps,       //pulse: the command is complete, after its last argument
+    input  logic       am_done_ps,  //argmax done pulse, from dp_acc
+    input  logic [3:0] winner,      //the winner, from dp_acc
+    input  logic       win_valid,   //valid of winner
+    output logic [7:0] seg          //registered {dp, g, f, e, d, c, b, a}, active high; reset 0x40
 );
 
 
-logic [7:0] seg_pat;   //the pattern SEG_SHOW wrote; shown in pattern mode
-logic       seg_mode;  //0 pattern mode, 1 winner mode
-logic       seg_show;  //the SEG_SHOW argument byte is on arg_byte: write the pattern and select pattern mode
-logic       seg_win;   //select winner mode: a SEG_WINNER is complete, or an argmax has finished (am_done)
-logic [7:0] digit;     //the winner's 7-segment pattern, from the table below
-logic [7:0] win_pat;   //the digit while win_valid is 1, else every segment off
-logic [7:0] seg_next;  //what seg loads at the next edge: win_pat in winner mode, seg_pat in pattern mode
+logic [7:0] seg_pat;      //the pattern SEG_SHOW wrote; shown in pattern mode
+logic       seg_mode;     //0 pattern mode, 1 winner mode
+logic       seg_show_ps;  //the SEG_SHOW argument byte is on arg_byte: write the pattern and select pattern mode
+logic       seg_win_ps;   //select winner mode: a SEG_WINNER is complete, or an argmax has finished (am_done_ps)
+logic [7:0] digit;        //the winner's 7-segment pattern, from the table below
+logic [7:0] win_pat;      //the digit while win_valid is 1, else every segment off
+logic [7:0] seg_next;     //what seg loads at the next edge: win_pat in winner mode, seg_pat in pattern mode
 
 
-//Command strobes: SEG_SHOW has one argument byte, so its arg_we and its go come in
-//the same clock; the pattern is taken with arg_we. SEG_WINNER has no argument, so its go marks it.
-assign seg_show = arg_we & (cmd == address_map::CMD_SEG_SHOW);
-assign seg_win = (go & (cmd == address_map::CMD_SEG_WINNER)) | am_done;
+//Command strobes: SEG_SHOW has one argument byte, so its arg_valid and its go_ps come in
+//the same clock; the pattern is taken with arg_valid. SEG_WINNER has no argument, so its go_ps marks it.
+assign seg_show_ps = arg_valid & (cmd == address_map::CMD_SEG_SHOW);
+assign seg_win_ps = (go_ps & (cmd == address_map::CMD_SEG_WINNER)) | am_done_ps;
 
 
 //Pattern register and mode: SEG_SHOW writes the pattern and selects pattern mode in the same
-//clock. When seg_show and seg_win arrive in one clock, seg_show wins.
+//clock. When seg_show_ps and seg_win_ps arrive in one clock, seg_show_ps wins.
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         begin
@@ -65,12 +65,12 @@ always_ff @(posedge clk or negedge rst_n)
         end
     else
         begin
-        if(seg_show)
+        if(seg_show_ps)
             seg_pat     <= arg_byte;
         
-        if(seg_show)
+        if(seg_show_ps)
             seg_mode    <= 1'b0;
-        else if(seg_win)
+        else if(seg_win_ps)
             seg_mode    <= 1'b1;
         end
 

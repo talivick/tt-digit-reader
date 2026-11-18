@@ -32,7 +32,8 @@
 
 module ctrl (
     input  logic               clk,        //rising edge
-    input  logic               rst_n,      //asynchronous, active low; resets the state machine and the status bits; the configuration registers have no reset
+    //asynchronous, active low; resets the state machine and the status bits; the configuration registers have no reset
+    input  logic               rst_n,
     input  logic               reg_we,     //register write strobe; ctrl owns 0x10 to 0x1D
     input  logic        [7:0]  reg_addr,   //register address
     input  logic        [7:0]  reg_wdata,  //register write data
@@ -59,7 +60,7 @@ module ctrl (
 //into the array. DRAIN: waits for the last result.
 enum logic [1:0] {IDLE, LOAD, STREAM, DRAIN} state, next_state; 
 logic       in_range;
-logic       wr_ok;
+logic       wr_ok_ps;
 logic [7:0] row_count;
 logic [7:0] res_count;
 logic [7:0] m;          //M, the number of rows in one matrix run. The host writes it to MX_M (0x10) before MX_START,
@@ -70,15 +71,20 @@ logic [7:0] m;          //M, the number of rows in one matrix run. The host writ
 //  1. The register writes
 //--------------------------------------------------------------------------------------------------------------------
 
-assign in_range = (reg_addr >= address_map::REG_MX_FIRST) && (reg_addr <= address_map::REG_MX_LAST);    //the address is one of ctrl's
-assign wr_ok = reg_we & in_range & (state == IDLE);                         //write OK: a write to one of ctrl's addresses, in IDLE; 0 while busy, so a write while busy changes nothing here and sets mx_err below
+//the address is one of ctrl's
+assign in_range = (reg_addr >= address_map::REG_MX_FIRST) && (reg_addr <= address_map::REG_MX_LAST);
+//write OK: a write to one of ctrl's addresses, in IDLE;
+//0 while busy, so a write while busy changes nothing here and sets mx_err below
+assign wr_ok_ps = reg_we & in_range & (state == IDLE);
     
-assign mx_w_ld[0] = wr_ok & (reg_addr == address_map::REG_MX_W00);      //matrix weight load pulse, one bit per PE; no pulse while busy, since wr_ok = 0
-assign mx_w_ld[1] = wr_ok & (reg_addr == address_map::REG_MX_W01);
-assign mx_w_ld[2] = wr_ok & (reg_addr == address_map::REG_MX_W10);
-assign mx_w_ld[3] = wr_ok & (reg_addr == address_map::REG_MX_W11);
+//matrix weight load pulse, one bit per PE; no pulse while busy, since wr_ok_ps = 0
+assign mx_w_ld[0] = wr_ok_ps & (reg_addr == address_map::REG_MX_W00);
+assign mx_w_ld[1] = wr_ok_ps & (reg_addr == address_map::REG_MX_W01);
+assign mx_w_ld[2] = wr_ok_ps & (reg_addr == address_map::REG_MX_W10);
+assign mx_w_ld[3] = wr_ok_ps & (reg_addr == address_map::REG_MX_W11);
 
-assign mx_w = reg_wdata;                                    //matrix weight, the data of a weight write; a PE takes it only with its mx_w_ld bit at 1
+//matrix weight, the data of a weight write; a PE takes it only with its mx_w_ld bit at 1
+assign mx_w = reg_wdata;
 
 
 //Control registers (no reset): the host writes these before a run. scale and the biases are written
@@ -92,36 +98,36 @@ assign mx_w = reg_wdata;                                    //matrix weight, the
 always_ff @(posedge clk)
     begin
     //m
-    if(wr_ok & (reg_addr == address_map::REG_MX_M))         //rows per run, MX_M (0x10); m = 0 ends a run at once
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_M))         //rows per run, MX_M (0x10); m = 0 ends a run at once
         m           <= reg_wdata;
     
     //scale
-    if(wr_ok & (reg_addr == address_map::REG_MX_SCALE_LO))  //the unsigned scale
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_SCALE_LO))  //the unsigned scale
         scale[7:0]  <= reg_wdata;
-    if(wr_ok & (reg_addr == address_map::REG_MX_SCALE_HI))
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_SCALE_HI))
         scale[15:8] <= reg_wdata;
     
     //shift and ReLU
-    if(wr_ok & (reg_addr == address_map::REG_MX_SHIFT))     //S, the shift count (MX_SHIFT bits 4:0) 
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_SHIFT))     //S, the shift count (MX_SHIFT bits 4:0) 
         begin                                   //the ReLU enable relu = 1: requant turns a negative result into 0
         shift       <= reg_wdata[4:0];
         relu        <= reg_wdata[7];
         end
     
     //bias0
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_LO))  //the column 0 bias, 17-bit signed, two's complement
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_BIAS0_LO))  //the column 0 bias, 17-bit signed, two's complement
         bias0[7:0] <= reg_wdata;
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_MID))
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_BIAS0_MID))
         bias0[15:8] <= reg_wdata;       
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS0_HI))
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_BIAS0_HI))
         bias0[16] <= reg_wdata[0];
  
     //bias1
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_LO))  //the column 1 bias, 17-bit signed, two's complement
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_BIAS1_LO))  //the column 1 bias, 17-bit signed, two's complement
         bias1[7:0] <= reg_wdata;
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_MID))
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_BIAS1_MID))
         bias1[15:8] <= reg_wdata;       
-    if(wr_ok & (reg_addr == address_map::REG_MX_BIAS1_HI))
+    if(wr_ok_ps & (reg_addr == address_map::REG_MX_BIAS1_HI))
         bias1[16] <= reg_wdata[0];
     end
 
@@ -144,7 +150,8 @@ always_comb
                   else                                      next_state = IDLE;
             end
           
-    LOAD:   begin if(m == '0)                               next_state = IDLE;  //2. nothing to stream: IDLE with mx_done
+    //2. nothing to stream: IDLE with mx_done
+    LOAD:   begin if(m == '0)                               next_state = IDLE;
                   else                                      next_state = STREAM;    //3. rows to stream
             end
           
@@ -152,7 +159,8 @@ always_comb
                   else                                      next_state = STREAM;
             end
     
-    DRAIN:  begin if(res_pop & ((res_count + 8'd1) == m))   next_state = IDLE;  //5. the M-th result popped: IDLE with mx_done
+    //5. the M-th result popped: IDLE with mx_done
+    DRAIN:  begin if(res_pop & ((res_count + 8'd1) == m))   next_state = IDLE;
             else                                            next_state = DRAIN;
             end
     

@@ -15,7 +15,7 @@
 //   the guard in steps of 64 clocks, 0 for none.
 //   Offer a byte on "tx_byte" with "tx_valid" high, its "dc" level on "tx_dc", "tx_dev"
 //   0 for the screen or 1 for the touch controller, and "tx_last" high on the frame's
-//   last byte; "tx_ready" pulses when the byte is taken. Bytes offered in time go back
+//   last byte; "tx_ready_ps" pulses when the byte is taken. Bytes offered in time go back
 //   to back; otherwise "sck" stops low with the select held.
 //   "rx_valid" pulses after each byte; "rx_byte", sampled from "miso_s", holds the byte
 //   from that clock until the next byte's first capture. "spi_busy" is high during a
@@ -36,29 +36,31 @@
 `default_nettype none
 
 module spi_master (
-    input  logic       clk,        //rising edge
-    input  logic       rst_n,      //asynchronous, active low; resets SCKDIV to 0x71, GUARD to 0x4F, the pin flops (sck 0, mosi 0, dc 1, cs_lcd_n 1, cs_tp_n 1), the state
-    input  logic       reg_we,     //register write strobe; SCKDIV (0x04), GUARD (0x05)
-    input  logic [7:0] reg_addr,   //register address
-    input  logic [7:0] reg_wdata,  //register write data
-    input  logic       tx_valid,   //byte request
-    input  logic [7:0] tx_byte,    //the byte to send
-    input  logic       tx_dc,      //dc level for the byte
-    input  logic       tx_dev,     //0 screen, 1 touch
-    input  logic       tx_last,    //ends the frame
-    output logic       tx_ready,   //pulse: the byte is taken
-    output logic [7:0] rx_byte,    //the byte received during the byte just ended
-    output logic       rx_valid,   //pulse: rx_byte is valid
-    input  logic       miso_s,     //synchronized touch data
-    output logic       spi_busy,   //guard or frame in progress
-    output logic       sck,        //pin flop to uio_out[0]
-    output logic       mosi,       //pin flop to uio_out[1]
-    output logic       dc,         //pin flop to uio_out[2]
-    output logic       cs_lcd_n,   //pin flop to uio_out[3]
-    output logic       cs_tp_n     //pin flop to uio_out[4]
+    input  logic       clk,          //rising edge
+    //asynchronous, active low; resets SCKDIV to 0x71, GUARD to 0x4F,
+    //the pin flops (sck 0, mosi 0, dc 1, cs_lcd_n 1, cs_tp_n 1), the state
+    input  logic       rst_n,
+    input  logic       reg_we,       //register write strobe; SCKDIV (0x04), GUARD (0x05)
+    input  logic [7:0] reg_addr,     //register address
+    input  logic [7:0] reg_wdata,    //register write data
+    input  logic       tx_valid,     //byte request
+    input  logic [7:0] tx_byte,      //the byte to send
+    input  logic       tx_dc,        //dc level for the byte
+    input  logic       tx_dev,       //0 screen, 1 touch
+    input  logic       tx_last,      //ends the frame
+    output logic       tx_ready_ps,  //pulse: the byte is taken
+    output logic [7:0] rx_byte,      //the byte received during the byte just ended
+    output logic       rx_valid,     //pulse: rx_byte is valid
+    input  logic       miso_s,       //synchronized touch data
+    output logic       spi_busy,     //guard or frame in progress
+    output logic       sck,          //pin flop to uio_out[0]
+    output logic       mosi,         //pin flop to uio_out[1]
+    output logic       dc,           //pin flop to uio_out[2]
+    output logic       cs_lcd_n,     //pin flop to uio_out[3]
+    output logic       cs_tp_n       //pin flop to uio_out[4]
 );
 
-logic [7:0] sckdiv;
+logic [7:0] sck_div;
 logic [7:0] guard;
 logic had_frame;
 logic touch_frame;
@@ -72,7 +74,7 @@ logic start;
 logic [3:0] h_field;
 logic half_done;
 logic sck_fall;
-logic byte_done;
+logic byte_done_ps;
 logic sel_rise;
 enum logic [2:0] {IDLE, WAIT, SEND, PAUSE, TAIL, HOLD} state, next_state;
 
@@ -88,13 +90,13 @@ enum logic [2:0] {IDLE, WAIT, SEND, PAUSE, TAIL, HOLD} state, next_state;
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         begin
-        sckdiv      <= 8'h71;
+        sck_div     <= 8'h71;
         guard       <= 8'h4F;
         end
     else
         begin
         if(reg_we & (reg_addr == address_map::REG_SCKDIV))
-            sckdiv      <= reg_wdata;
+            sck_div     <= reg_wdata;
 
         if(reg_we & (reg_addr == address_map::REG_GUARD))
             guard       <= reg_wdata;
@@ -125,7 +127,7 @@ always_ff @(posedge clk)
     else if((state == WAIT) & (guard_left != 14'd0))
         guard_left      <= guard_left - 14'd1;
 
-    if(tx_ready)
+    if(tx_ready_ps)
         last_flag       <= tx_last;
     end
 
@@ -134,15 +136,15 @@ always_ff @(posedge clk)
 //  2. Taking a byte and the state machine
 //--------------------------------------------------------------------------------------------------------------------
 
-//Taking a byte: tx_ready is high for one clock when a byte is taken from tx_byte, which happens when tx_valid is
+//Taking a byte: tx_ready_ps is high for one clock when a byte is taken from tx_byte, which happens when tx_valid is
 //high and the master is idle with no guard due, or at the end of the guard, or in a pause between bytes, or at the
-//end of a byte that is not the frame's last. start is tx_ready for the first byte of a frame.
-assign tx_ready     = tx_valid
+//end of a byte that is not the frame's last. start is tx_ready_ps for the first byte of a frame.
+assign tx_ready_ps  = tx_valid
                     & (((state == IDLE) & ~guard_due)
                     | ((state == WAIT) & (guard_left == 14'd0)) | (state == PAUSE)
-                    | (byte_done & ~last_flag));
+                    | (byte_done_ps & ~last_flag));
 
-assign start        = tx_ready & ((state == IDLE) | (state == WAIT));
+assign start        = tx_ready_ps & ((state == IDLE) | (state == WAIT));
 
 
 //State machine: IDLE between frames; WAIT during the guard; SEND while a byte is on the bus; PAUSE between bytes of
@@ -167,28 +169,28 @@ always_ff @(posedge clk or negedge rst_n)
 
 always_comb
     case(state)
-    IDLE:   if(tx_valid & guard_due)        next_state = WAIT;
-            else if(tx_ready)               next_state = SEND;
-            else                            next_state = IDLE;
+    IDLE:   if(tx_valid & guard_due)           next_state = WAIT;
+            else if(tx_ready_ps)               next_state = SEND;
+            else                               next_state = IDLE;
 
-    WAIT:   if(tx_ready)                    next_state = SEND;
-            else                            next_state = WAIT;
+    WAIT:   if(tx_ready_ps)                    next_state = SEND;
+            else                               next_state = WAIT;
 
-    SEND:   if(tx_ready)                    next_state = SEND;
-            else if(byte_done & last_flag)  next_state = TAIL;
-            else if(byte_done)              next_state = PAUSE;
-            else                            next_state = SEND;
+    SEND:   if(tx_ready_ps)                    next_state = SEND;
+            else if(byte_done_ps & last_flag)  next_state = TAIL;
+            else if(byte_done_ps)              next_state = PAUSE;
+            else                               next_state = SEND;
 
-    PAUSE:  if(tx_ready)                    next_state = SEND;
-            else                            next_state = PAUSE;
+    PAUSE:  if(tx_ready_ps)                    next_state = SEND;
+            else                               next_state = PAUSE;
 
-    TAIL:   if(half_done)                   next_state = HOLD;
-            else                            next_state = TAIL;
+    TAIL:   if(half_done)                      next_state = HOLD;
+            else                               next_state = TAIL;
 
-    HOLD:   if(half_done)                   next_state = IDLE;
-            else                            next_state = HOLD;
+    HOLD:   if(half_done)                      next_state = IDLE;
+            else                               next_state = HOLD;
 
-    default:                                next_state = IDLE;
+    default:                                   next_state = IDLE;
     endcase
 
 assign spi_busy     = (state != IDLE);
@@ -201,12 +203,12 @@ assign spi_busy     = (state != IDLE);
 //Half period counter: a bit is one half period of sck low then one of sck high, each H clocks, H being the SCKDIV
 //field of the frame's device plus 1. h_field is that field, half_count counts the clocks of the current half period
 //and half_done is 1 on its last clock. sck toggles at the end of each half period while a byte is on the bus;
-//sck_fall is 1 in the last clock of each high half period (sck falls at the end of that clock), and byte_done on
+//sck_fall is 1 in the last clock of each high half period (sck falls at the end of that clock), and byte_done_ps on
 //the sck_fall that ends the eighth bit.
-assign h_field      = touch_frame ? sckdiv[7:4] : sckdiv[3:0];
+assign h_field      = touch_frame ? sck_div[7:4] : sck_div[3:0];
 
 always_ff @(posedge clk)
-    if(tx_ready | half_done)
+    if(tx_ready_ps | half_done)
         half_count  <= 4'd0;
     else
         half_count  <= half_count + 4'd1;
@@ -220,20 +222,20 @@ always_ff @(posedge clk or negedge rst_n)
         sck         <= ~sck;
 
 assign sck_fall = (state == SEND) & sck & half_done;
-assign byte_done = sck_fall & (bits_left == 3'd0);
+assign byte_done_ps = sck_fall & (bits_left == 3'd0);
 
 
 //Output shift register: bits_left counts the bits of the byte still to send after the one on mosi, and out_bits
 //holds them. mosi takes bit 7 of tx_byte when the byte is taken and the next bit at each sck_fall, and returns to 0
 //when the selects rise.
 always_ff @(posedge clk)
-    if(tx_ready)
+    if(tx_ready_ps)
         bits_left   <= 3'd7;
     else if(sck_fall)
         bits_left   <= bits_left - 3'd1;
 
 always_ff @(posedge clk)
-    if(tx_ready)
+    if(tx_ready_ps)
         out_bits    <= tx_byte[6:0];
     else if(sck_fall)
         out_bits    <= {out_bits[5:0], 1'b0};
@@ -242,7 +244,7 @@ always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         mosi        <= 1'b0;
     else
-        if(tx_ready)
+        if(tx_ready_ps)
             mosi        <= tx_byte[7];
         else if(sck_fall & (bits_left != 3'd0))
             mosi        <= out_bits[6];
@@ -257,7 +259,7 @@ always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         dc          <= 1'b1;
     else
-        if(tx_ready)
+        if(tx_ready_ps)
             dc          <= tx_dc;
         else if(sel_rise)
             dc          <= 1'b1;
@@ -298,7 +300,7 @@ always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         rx_valid    <= 1'b0;
     else
-        if(byte_done & touch_frame)
+        if(byte_done_ps & touch_frame)
             rx_valid    <= 1'b1;
         else
             rx_valid    <= 1'b0;

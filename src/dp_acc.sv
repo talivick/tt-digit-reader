@@ -14,17 +14,17 @@
 //
 // Operation
 //   DIG_START's ten argument bytes, the INT8 biases of classes 0 to 9, load the scores
-//   sign-extended, and its "go" clears "win_valid".
+//   sign-extended, and its "go_ps" clears "win_valid".
 //   An "acc_add" pulse adds "acc_add_val" to the score at the head, with 12-bit wrap,
 //   and steps the ring.
 //   Read score k with "acc_req" high and "acc_idx" = k: the ring steps one place per
 //   clock until "acc_ack" is high with the score on "acc_val".
-//   DIG_ARGMAX's "go" scans the ten scores and ends with "winner", "win_valid" high and
-//   an "am_done" pulse. "am_busy" is high meanwhile, and "acc_req" is then ignored.
+//   DIG_ARGMAX's "go_ps" scans the ten scores and ends with "winner", "win_valid" high and
+//   an "am_done_ps" pulse. "am_busy" is high meanwhile, and "acc_req" is then ignored.
 //
 // Timing
 //   A read waits at most 9 clocks. The argmax takes 11 clocks after 160 tiles and at
-//   most 20, counting the "go" clock as 1.
+//   most 20, counting the "go_ps" clock as 1.
 //
 // Reset
 //   "rst_n" is asynchronous and active low. It resets the ring position to 0, "winner"
@@ -35,11 +35,13 @@
 
 module dp_acc (
     input  logic               clk,          //rising edge
-    input  logic               rst_n,        //asynchronous, active low; resets apos, win_valid, am_busy and the argmax state
-    input  logic        [7:0]  cmd,          //the command byte; DIG_START biases and go (clears WIN_VALID); DIG_ARGMAX go
-    input  logic               arg_we,       //pulse: an argument byte is on arg_byte
+    //asynchronous, active low; resets apos, win_valid, am_busy and the argmax state
+    input  logic               rst_n,
+    //the command byte; DIG_START biases and go_ps (clears WIN_VALID); DIG_ARGMAX go_ps
+    input  logic        [7:0]  cmd,
+    input  logic               arg_valid,    //pulse: an argument byte is on arg_byte
     input  logic        [7:0]  arg_byte,     //the argument byte
-    input  logic               go,           //pulse: the command is complete, after its last argument
+    input  logic               go_ps,        //pulse: the command is complete, after its last argument
     input  logic               acc_req,      //read request for accumulator acc_idx
     input  logic        [3:0]  acc_idx,      //k, the accumulator requested
     output logic signed [11:0] acc_val,      //the head
@@ -48,7 +50,7 @@ module dp_acc (
     input  logic signed [11:0] acc_add_val,  //the value added
     output logic        [3:0]  winner,       //the argmax result
     output logic               win_valid,    //valid of winner
-    output logic               am_done,      //pulses at the end of an argmax
+    output logic               am_done_ps,   //pulses at the end of an argmax
     output logic               am_busy       //argmax in progress
 );
 
@@ -62,20 +64,20 @@ logic [11:0] sum;
 logic [11:0] new9;
 logic step;
 logic move;
-logic go_argmax;
-logic last;
+logic go_argmax_ps;
+logic last_ps;
 logic better;
-logic go_start;
+logic go_start_ps;
 enum logic [1:0] {IDLE, SEEK, SCAN} state, next_state;
 
 
 //Ring input: the value the tail takes on a move. A DIG_START byte enters sign-extended from 8 bits to 12; an add
 //puts the head's score plus the value added there, with 12-bit wrap; otherwise the head's score goes around
 //unchanged.
-assign load     = arg_we & (cmd == address_map::CMD_DIG_START);  //a DIG_START byte is arriving
-assign bias12   = {{4{arg_byte[7]}}, arg_byte};                  //the byte sign-extended from 8 bits to 12
-assign sum      = acc_val + acc_add_val;                         //the head's score plus the value added
-assign new9     = load ? bias12 : (acc_add ? sum : acc_val);     //what the tail, nine places behind the head, takes
+assign load     = arg_valid & (cmd == address_map::CMD_DIG_START);  //a DIG_START byte is arriving
+assign bias12   = {{4{arg_byte[7]}}, arg_byte};                     //the byte sign-extended from 8 bits to 12
+assign sum      = acc_val + acc_add_val;                            //the head's score plus the value added
+assign new9     = load ? bias12 : (acc_add ? sum : acc_val);        //what the tail, nine places behind the head, takes
 
 
 //Ring step: the ring moves for a bias byte, an add, a read whose score is not yet at the head, and every clock
@@ -112,10 +114,10 @@ assign acc_val      = ar[11:0];
 assign acc_ack      = acc_req & (apos == acc_idx) & ~am_busy;
 
 
-//Argmax state machine: IDLE waits for DIG_ARGMAX's go; SEEK steps the ring until score 0 is at the head; SCAN
+//Argmax state machine: IDLE waits for DIG_ARGMAX's go_ps; SEEK steps the ring until score 0 is at the head; SCAN
 //steps through the ten scores, one per clock, and ends on the tenth.
-assign go_argmax    = go & (cmd == address_map::CMD_DIG_ARGMAX);    //DIG_ARGMAX's go
-assign go_start     = go & (cmd == address_map::CMD_DIG_START);     //DIG_START's go; it clears win_valid
+assign go_argmax_ps = go_ps & (cmd == address_map::CMD_DIG_ARGMAX);  //DIG_ARGMAX's go_ps
+assign go_start_ps  = go_ps & (cmd == address_map::CMD_DIG_START);   //DIG_START's go_ps; it clears win_valid
 
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
@@ -125,8 +127,8 @@ always_ff @(posedge clk or negedge rst_n)
 
 always_comb
     case(state)
-    IDLE: if(go_argmax & (apos != 4'd0))    next_state = SEEK;
-          else if(go_argmax)                next_state = SCAN;
+    IDLE: if(go_argmax_ps & (apos != 4'd0)) next_state = SEEK;
+          else if(go_argmax_ps)             next_state = SCAN;
           else                              next_state = IDLE;
 
     SEEK: if(apos == 4'd9)                  next_state = SCAN;
@@ -142,7 +144,7 @@ always_comb
 //Best so far: in SCAN the first score is taken, and a later score replaces it only when it is greater, as a
 //signed compare, so a tie keeps the lower class. On the last clock the tenth score is compared on its own.
 assign am_busy      = (state != IDLE);
-assign last         = (state == SCAN) & (apos == 4'd9);    //the scan's last clock: the tenth score is at the head
+assign last_ps      = (state == SCAN) & (apos == 4'd9);    //the scan's last clock: the tenth score is at the head
 //the head's score is greater than the best so far, or it is the first score, at apos 0
 assign better       = (apos == 4'd0) | (acc_val > best);
 
@@ -155,24 +157,24 @@ always_ff @(posedge clk)
 
 
 //Result registers: on the last clock winner takes the tenth score's index if it beats the best, else the
-//best's index; win_valid rises then and falls at DIG_START's go; am_done is high for the one clock after the
+//best's index; win_valid rises then and falls at DIG_START's go_ps; am_done_ps is high for the one clock after the
 //scan.
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         begin
         winner      <= 4'd0;
         win_valid   <= 1'b0;
-        am_done     <= 1'b0;
+        am_done_ps  <= 1'b0;
         end
     else
         begin
-        am_done     <= last;
-        if(last)
+        am_done_ps  <= last_ps;
+        if(last_ps)
             begin
             winner      <= better ? apos : best_idx;
             win_valid   <= 1'b1;
             end
-        else if(go_start)
+        else if(go_start_ps)
             win_valid   <= 1'b0;
         end
 

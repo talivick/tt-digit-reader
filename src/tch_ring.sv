@@ -10,7 +10,7 @@
 //   address and no read multiplexer.
 //
 // Operation
-//   "tr_head" is the word at the head and "tr_hpos" its index, 0 to 64.
+//   "tr_head" is the word at the head and "tr_head_pos" its index, 0 to 64.
 //   At each edge the tail, word 64, takes what "tr_sel" names: 0 or 3 the head (keep),
 //   1 "tr_in" (an updated weight), 2 zero (clear).
 //   Every link carries one instantiated delay cell, sky130_fd_sc_hd__dlygate4sd3_1 with
@@ -23,19 +23,20 @@
 //   cleared or read.
 //
 // Reset
-//   "rst_n" is asynchronous and active low and resets "tr_hpos" to 0 only. The 390 bits
+//   "rst_n" is asynchronous and active low and resets "tr_head_pos" to 0 only. The 390 bits
 //   of weights have no reset and no enable; the host clears them with TCH_CLEAR after
 //   every reset.
 
 `default_nettype none
 
 module tch_ring (
-    input  logic              clk,      //rising edge
-    input  logic              rst_n,    //asynchronous, active low; resets tr_hpos only
-    input  logic        [1:0] tr_sel,   //what the tail takes: 0 or 3 the head (keep), 1 tr_in (update), 2 zero (clear)
-    input  logic signed [5:0] tr_in,    //the updated weight
-    output logic signed [5:0] tr_head,  //the word at the head
-    output logic        [6:0] tr_hpos   //the index of the word at the head: 0 to 63 a pixel's weight, 64 the bias
+    input  logic              clk,         //rising edge
+    input  logic              rst_n,       //asynchronous, active low; resets tr_head_pos only
+    //what the tail takes: 0 or 3 the head (keep), 1 tr_in (update), 2 zero (clear)
+    input  logic        [1:0] tr_sel,
+    input  logic signed [5:0] tr_in,       //the updated weight
+    output logic signed [5:0] tr_head,     //the word at the head
+    output logic        [6:0] tr_head_pos  //the index of the word at the head: 0 to 63 a pixel's weight, 64 the bias
 );
 
 logic [389:0] ring;
@@ -84,13 +85,13 @@ always_ff @(posedge clk)
 assign tr_head = ring[5:0];                         //the word at the head, 6-bit two's complement
 
 
-// The head's index. tr_hpos counts the edges, 0 to 64 and back to 0, so it names the word at the head: the ring and
-// the counter both have a period of 65 edges. A word written at the tail while tr_hpos is n is at the head 65 edges
-// later, when tr_hpos is n again.
+// The head's index. tr_head_pos counts the edges, 0 to 64 and back to 0, so it names the word at the head: the ring and
+// the counter both have a period of 65 edges. A word written at the tail while tr_head_pos is n is at the head 65 edges
+// later, when tr_head_pos is n again.
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
-        tr_hpos     <= 7'd0;
+        tr_head_pos  <= 7'd0;
     else
-        tr_hpos     <= (tr_hpos == 7'd64) ? 7'd0 : tr_hpos + 7'd1;     //the next word; after 64 comes 0
+        tr_head_pos  <= (tr_head_pos == 7'd64) ? 7'd0 : tr_head_pos + 7'd1;     //the next word; after 64 comes 0
 
 endmodule

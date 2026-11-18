@@ -11,18 +11,18 @@
 //
 // Operation
 //   TILE's byte 0 loads PE(0,0) and PE(0,1) and byte 1 loads PE(1,0) and PE(1,1), each
-//   4-bit weight sign-extended, as the bytes arrive ("arg_we", "arg_idx", "arg_byte").
+//   4-bit weight sign-extended, as the bytes arrive ("arg_valid", "arg_idx", "arg_byte").
 //   Tile t covers pixels 2i and 2i + 1 for classes 2j and 2j + 1, i = t div 5 and
-//   j = t mod 5. At "go" the walker requests pair i and accumulator 2j until "pair_ack"
+//   j = t mod 5. At "go_ps" the walker requests pair i and accumulator 2j until "pair_ack"
 //   and "acc_ack" are both high, sends the row on "wk_a" with "wk_a_valid", and adds
 //   class 2j's sum, then class 2j + 1's, with "acc_add" and "acc_add_val". Then j
 //   steps, wrapping at 5 with i + 1, and i wraps at 32.
 //   "wk_sel" is high while the walker owns the array; its "wk_" outputs are 0 otherwise.
-//   Send the 160 tiles in order after DIG_START, whose "go" clears i and j; more than
+//   Send the 160 tiles in order after DIG_START, whose "go_ps" clears i and j; more than
 //   160 without DIG_START can overflow the 12-bit scores.
 //
 // Timing
-//   A tile takes 7 clocks from "go" to idle with both rings in place, counting the "go"
+//   A tile takes 7 clocks from "go_ps" to idle with both rings in place, counting the "go_ps"
 //   clock as 1. 15 of the 160 tiles after IMG (16 when the image is reused) take 8,
 //   where the image ring steps to the next byte. "wk_busy" is high during a tile.
 //
@@ -34,12 +34,14 @@
 
 module dp_walk (
     input  logic               clk,            //rising edge
-    input  logic               rst_n,          //asynchronous, active low; resets the walker's state (DIG_START's go clears i and j)
-    input  logic        [7:0]  cmd,            //the command byte; TILE bytes and go; DIG_START's go clears i and j
-    input  logic               arg_we,         //pulse: an argument byte is on arg_byte
+    //asynchronous, active low; resets the walker's state (DIG_START's go_ps clears i and j)
+    input  logic               rst_n,
+    //the command byte; TILE bytes and go_ps; DIG_START's go_ps clears i and j
+    input  logic        [7:0]  cmd,
+    input  logic               arg_valid,      //pulse: an argument byte is on arg_byte
     input  logic        [3:0]  arg_idx,        //the argument's index, 0 first
     input  logic        [7:0]  arg_byte,       //the argument byte
-    input  logic               go,             //pulse: the command is complete, after its last argument
+    input  logic               go_ps,          //pulse: the command is complete, after its last argument
     output logic               walk_pair_req,  //request for pair i
     output logic        [4:0]  walk_pair_idx,  //i
     input  logic        [3:0]  pair,           //the pair, from dp_img
@@ -63,13 +65,13 @@ logic [3:0] pair_reg;
 logic [11:0] c1_reg;
 logic [2:0] j;
 logic [4:0] i;
-logic tile_byte;
+logic tile_byte_ps;
 logic [7:0] weight_lo;
 logic [7:0] weight_hi;
 logic add1;
-logic go_tile;
+logic go_tile_ps;
 logic rings_ack;
-logic go_start;
+logic go_start_ps;
 enum logic [2:0] {IDLE, REQ, ROW, WAIT, ADD2} state, next_state;
 
 
@@ -81,12 +83,12 @@ enum logic [2:0] {IDLE, REQ, ROW, WAIT, ADD2} state, next_state;
 //                    class 2j      class 2j + 1
 //    pixel 2i        PE(0, 0)      PE(0, 1)          TILE byte 0: the low nibble, then the high nibble
 //    pixel 2i + 1    PE(1, 0)      PE(1, 1)          TILE byte 1: the low nibble, then the high nibble
-assign tile_byte    = arg_we & (cmd == address_map::CMD_TILE);    //a TILE byte is arriving
-assign weight_lo    = {{4{arg_byte[3]}}, arg_byte[3:0]};          //the low nibble, the column 0 weight, sign-extended
-assign weight_hi    = {{4{arg_byte[7]}}, arg_byte[7:4]};          //the high nibble, the column 1 weight, sign-extended
-assign wk_w_ld      = tile_byte ? ((arg_idx == 4'd0) ? 4'b0011 : 4'b1100) : 4'b0000;
-assign wk_w         = tile_byte ? {weight_hi, weight_lo, weight_hi, weight_lo} : 32'd0;
-assign wk_sel       = tile_byte | wk_busy;
+assign tile_byte_ps = arg_valid & (cmd == address_map::CMD_TILE);  //a TILE byte is arriving
+assign weight_lo    = {{4{arg_byte[3]}}, arg_byte[3:0]};           //the low nibble, the column 0 weight, sign-extended
+assign weight_hi    = {{4{arg_byte[7]}}, arg_byte[7:4]};           //the high nibble, the column 1 weight, sign-extended
+assign wk_w_ld      = tile_byte_ps ? ((arg_idx == 4'd0) ? 4'b0011 : 4'b1100) : 4'b0000;
+assign wk_w         = tile_byte_ps ? {weight_hi, weight_lo, weight_hi, weight_lo} : 32'd0;
+assign wk_sel       = tile_byte_ps | wk_busy;
 
 
 //Pair register: the pair from dp_img is kept in the clock both rings acknowledge, so the row sent next holds
@@ -116,11 +118,11 @@ assign acc_add      = add1 | (state == ADD2);
 assign acc_add_val  = (state == ADD2) ? c1_reg : dp_p[11:0];
 
 
-//Tile state machine: IDLE waits for TILE's go; REQ holds both ring requests until both acknowledge; ROW sends
-//the row; WAIT waits for the column sums; ADD2 sends the second add. A tile takes 7 clocks from go to idle when
+//Tile state machine: IDLE waits for TILE's go_ps; REQ holds both ring requests until both acknowledge; ROW sends
+//the row; WAIT waits for the column sums; ADD2 sends the second add. A tile takes 7 clocks from go_ps to idle when
 //both rings are already in place, one more for each step the image ring needs.
-assign go_tile      = go & (cmd == address_map::CMD_TILE);    //TILE's go
-assign rings_ack    = pair_ack & acc_ack;                     //both rings acknowledge
+assign go_tile_ps   = go_ps & (cmd == address_map::CMD_TILE);  //TILE's go_ps
+assign rings_ack    = pair_ack & acc_ack;                      //both rings acknowledge
 
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
@@ -130,7 +132,7 @@ always_ff @(posedge clk or negedge rst_n)
 
 always_comb
     case(state)
-    IDLE: if(go_tile)           next_state = REQ;
+    IDLE: if(go_tile_ps)        next_state = REQ;
           else                  next_state = IDLE;
 
     REQ:  if(rings_ack)         next_state = ROW;
@@ -156,13 +158,13 @@ assign walk_acc_idx     = {j, 1'b0};
 
 
 //Tile counters: j counts the class pair, 0 to 4, and i the pixel pair, 0 to 31. At the end of each tile j
-//steps, and when j wraps i steps; i wraps at 32 by its width. DIG_START's go clears both, so the 160 tiles
+//steps, and when j wraps i steps; i wraps at 32 by its width. DIG_START's go_ps clears both, so the 160 tiles
 //that follow it start at tile 0.
 //The order of the tiles; tile t covers pixel pair i = t div 5 and class pair j = t mod 5:
 //    tile    0     1     2     3     4     5     6     ...   158   159
 //    i       0     0     0     0     0     1     1     ...   31    31
 //    j       0     1     2     3     4     0     1     ...   3     4
-assign go_start = go & (cmd == address_map::CMD_DIG_START);    //DIG_START's go
+assign go_start_ps = go_ps & (cmd == address_map::CMD_DIG_START);    //DIG_START's go_ps
 
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
@@ -170,7 +172,7 @@ always_ff @(posedge clk or negedge rst_n)
         j       <= 3'd0;
         i       <= 5'd0;
         end
-    else if(go_start)
+    else if(go_start_ps)
         begin
         j       <= 3'd0;
         i       <= 5'd0;

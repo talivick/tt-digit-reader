@@ -58,7 +58,8 @@ module tt_um_talivick_digit_reader #(
 //disp_seq and touch_rd only with HAS_DISPLAY = 1, tch_ring and teach only with HAS_TEACH = 1:
 //    from           to                             what passes
 //    the host       cmd_dec                        a byte on ui_in with in_valid; in_ready goes back
-//    cmd_dec        seg7, dp_img, dp_walk, dp_acc  the command bus: cmd, arg_we, arg_byte and go, arg_idx where needed
+//    cmd_dec        seg7, dp_img, dp_walk, dp_acc  the command bus: cmd, arg_valid, arg_byte and go_ps, arg_idx
+//                                                  where needed
 //    cmd_dec        ctrl                           the register bus: reg_we, reg_addr and reg_wdata; mx_start, err_clr
 //    cmd_dec        mx_top                         MX_ROW's row; MX_READ's result goes back
 //    ctrl           mx_top                         the weights, the configuration and stream_en; row_pop, res_pop back
@@ -66,7 +67,7 @@ module tt_um_talivick_digit_reader #(
 //    dp_img         dp_walk                        the pixel pair requested
 //    dp_walk        mx_top                         weights and a row through the dp_ port; the column sums go back
 //    dp_walk        dp_acc                         the adds into the accumulator ring
-//    dp_acc         cmd_dec, seg7                  the score requested, the winner and win_valid; am_done to seg7
+//    dp_acc         cmd_dec, seg7                  the score requested, the winner and win_valid; am_done_ps to seg7
 //    cmd_dec, seg7  the pins                       uo_out: resp_byte while resp_oe is 1, else seg
 //    cmd_dec        disp_seq, touch_rd             the command bus; the register bus to disp_seq and spi_master
 //    disp_seq       spi_master                     byte requests through the SPI mux in with_display; the grant, gated
@@ -78,10 +79,37 @@ module tt_um_talivick_digit_reader #(
 //    cmd_dec        teach                          the command bus and the register bus
 //    tch_ring       teach                          the head weight and its position; the tail's value goes back
 //    teach          mx_top, requant                weights and a row through the dp_ port; the adder strobes and addend
-//    requant        teach                          ma_q, the running sum, and its sign
-//    teach          dp_img                         seek byte 0 and step; the head byte and img_at0 come back
+//    requant        teach                          ma_sum, the running sum, and its sign
+//    teach          dp_img                         seek byte 0 and step; the head byte and img_at_byte0 come back
 //    teach          cmd_dec                        TCH_READ's words; t_busy into walk_busy
 //    disp_seq       teach                          the weight map's requests; the weight and its acknowledge go back
+//
+//The prefixes and suffixes of the net names, each spelled out once:
+//    prefix         what it names
+//    mx_            the matrix unit, ctrl and mx_top
+//    res_, row_     the matrix unit's results and rows
+//    dp_            the digit path's port into the array, shared by the tile walker, teach mode and attract mode
+//    wk_, walk_     the tile walker, dp_walk
+//    acc_           the accumulator ring in dp_acc
+//    am_            the argmax in dp_acc
+//    win_           the argmax winner
+//    img_           the image ring, dp_img
+//    pair_          a pair of pixels of the image ring: its request, its index and its acknowledge
+//    dec_           the command decoder, cmd_dec; resp_ its response byte
+//    arg_           an argument byte of the command bus
+//    reg_           the register bus
+//    disp_          the display, the three blocks spi_master, disp_seq and touch_rd
+//    ds_            the display sequencer, disp_seq
+//    tp_            the touch panel, read by touch_rd
+//    tx_, rx_       the SPI master's transmit and receive sides
+//    tch_, t_       teach mode, teach
+//    tr_            the teach ring, tch_ring
+//    wm_            the weight map: teach mode's weights drawn by the display
+//    ma_            the modes adder: requant's adder, lent to teach mode and attract mode
+//    att_           attract mode
+//    suffix
+//    _s             the synchronized copy of a pin
+//    _ps            a pulse: 1 for one clock
 
 // the synchronizers
 logic               rst_n_s;
@@ -92,10 +120,10 @@ logic               in_ready;
 logic        [7:0]  resp_byte;
 logic               resp_oe;
 logic        [7:0]  cmd;
-logic               arg_we;
+logic               arg_valid;
 logic        [3:0]  arg_idx;
 logic        [7:0]  arg_byte;
-logic               go;
+logic               go_ps;
 logic               reg_we;
 logic        [7:0]  reg_addr;
 logic        [7:0]  reg_wdata;
@@ -103,7 +131,7 @@ logic               mx_start;
 logic               err_clr;
 logic               row_valid;
 logic        [15:0] row_data;
-logic               res_ready;
+logic               res_ready_ps;
 logic               dec_acc_req;
 logic        [3:0]  dec_acc_idx;
 // ctrl's outputs
@@ -127,8 +155,8 @@ logic               res_pop;
 logic        [1:0]  fifo_count;
 logic        [33:0] dp_p;
 logic               dp_p_valid;
-logic signed [17:0] ma_q;
-logic               ma_neg;
+logic signed [17:0] ma_sum;
+logic               ma_sum_neg;
 // seg7's output
 logic        [7:0]  seg;
 // the display's nets (spi_master, disp_seq, touch_rd): tied in without_display
@@ -154,7 +182,7 @@ logic signed [11:0] acc_val;
 logic               acc_ack;
 logic        [3:0]  winner;
 logic               win_valid;
-logic               am_done;
+logic               am_done_ps;
 // the digit path's inner nets (dp_img, dp_walk, dp_acc) and the muxed ring requests
 logic               walk_pair_req;
 logic        [4:0]  walk_pair_idx;
@@ -164,9 +192,9 @@ logic        [3:0]  pair;
 logic               pair_ack;
 logic               acc_add;
 logic signed [11:0] acc_add_val;
-logic        [7:0]  img_head0;
+logic        [7:0]  img_head_byte;
 logic        [7:0]  img_head8;
-logic               img_at0;
+logic               img_at_byte0;
 logic               pair_req;
 logic        [4:0]  pair_idx;
 logic               acc_req;
@@ -182,17 +210,17 @@ logic               wm_req;
 logic        [5:0]  wm_idx;
 logic signed [7:0]  wm_w;
 logic               wm_ack;
-// attract mode's frame through the display (disp_seq and attract): att_cx, att_cy, att_relu and att_take tied in
+// attract mode's frame through the display (disp_seq and attract): att_cx, att_cy, att_relu and att_take_ps tied in
 // without_display, att_ch_we, att_ch_val and att_full in without_attract
 logic        [7:0]  att_cx;
 logic        [6:0]  att_cy;
 logic               att_relu;
-logic               att_take;
+logic               att_take_ps;
 logic        [2:0]  att_ch_we;
 logic        [7:0]  att_ch_val;
 logic               att_full;
 // teach mode's drive of the image ring (teach): tied in without_teach
-logic               img_seek0;
+logic               img_seek_byte0;
 logic               img_step;
 // attract mode's drive of the image ring (attract): tied in without_attract
 logic               img_split;
@@ -278,10 +306,10 @@ cmd_dec #(
     .resp_byte,        //the response byte
     .resp_oe,          //select the response onto uo_out
     .cmd,              //the command byte; command bus to the blocks
-    .arg_we,           //pulse: an argument byte is on arg_byte
+    .arg_valid,        //pulse: an argument byte is on arg_byte
     .arg_idx,          //the argument's index, 0 first
     .arg_byte,         //the argument byte
-    .go,               //pulse: the command is complete, after its last argument
+    .go_ps,            //pulse: the command is complete, after its last argument
     .reg_we,           //register write strobe; register bus (REG_WR)
     .reg_addr,         //register address
     .reg_wdata,        //register write data
@@ -292,7 +320,7 @@ cmd_dec #(
     .row_ready,        //from mx_top
     .res_valid,        //MX_READ: a result is ready
     .res_data,         //the result
-    .res_ready,        //pops the result
+    .res_ready_ps,     //pulse: pops the result
     .fifo_count,       //status input
     .mx_busy,          //status input
     .mx_done,          //status input
@@ -318,7 +346,8 @@ cmd_dec #(
 //array, and reports mx_busy, mx_done and mx_err.
 ctrl i_ctrl(
     .clk,                   //rising edge
-    .rst_n (rst_n_s),       //asynchronous, active low; resets the state machine and the status bits; the configuration registers have no reset
+    //asynchronous, active low; resets the state machine and the status bits; the configuration registers have no reset
+    .rst_n (rst_n_s),
     .reg_we,                //register write strobe; ctrl owns 0x10 to 0x1D
     .reg_addr,              //register address
     .reg_wdata,             //register write data
@@ -345,13 +374,14 @@ ctrl i_ctrl(
 //through the ma_ port.
 mx_top i_mx_top(
     .clk,                   //rising edge
-    .rst_n (rst_n_s),       //asynchronous, active low; resets passed to the FIFO, the array and the requant unit (no registers of its own)
+    //asynchronous, active low; resets passed to the FIFO, the array and the requant unit (no registers of its own)
+    .rst_n (rst_n_s),
     .row_valid,             //a row is offered
     .row_data,              //the row {a1, a0} into the FIFO
     .row_ready,             //FIFO not full
     .res_valid,             //a result is ready
     .res_data,              //the result {y1, y0}
-    .res_ready,             //pops the result
+    .res_ready_ps,          //pulse: pops the result
     .stream_en,             //pops from the FIFO allowed (ctrl)
     .row_pop,               //pulse: a row entered the array
     .res_pop,               //pulse: a result left
@@ -375,8 +405,8 @@ mx_top i_mx_top(
     .ma_clr,                //to requant
     .ma_pe,                 //to requant
     .ma_b,                  //the modes' addend, to requant
-    .ma_q,                  //PH, from requant
-    .ma_neg                 //sign of the 19-bit sum, from requant
+    .ma_sum,                //PH, from requant
+    .ma_sum_neg             //sign of the 19-bit sum, from requant
     );
 
 
@@ -386,10 +416,10 @@ seg7 i_seg7 (
     .clk,                   //rising edge
     .rst_n (rst_n_s),       //asynchronous, active low; resets seg to 0x40 and the mode
     .cmd,                   //the command byte; SEG_SHOW, SEG_WINNER
-    .arg_we,                //pulse: an argument byte is on arg_byte
+    .arg_valid,             //pulse: an argument byte is on arg_byte
     .arg_byte,              //the argument byte
-    .go,                    //pulse: the command is complete, after its last argument
-    .am_done,               //argmax done pulse, from dp_acc
+    .go_ps,                 //pulse: the command is complete, after its last argument
+    .am_done_ps,            //argmax done pulse, from dp_acc
     .winner,                //the winner, from dp_acc
     .win_valid,             //valid of winner
     .seg                    //registered {dp, g, f, e, d, c, b, a}, active high; reset 0x40
@@ -415,26 +445,26 @@ generate
     logic               tx_dc;
     logic               tx_dev;
     logic               tx_last;
-    logic               tx_ready;        //spi_master's grant
+    logic               tx_ready_ps;     //spi_master's grant
     logic        [7:0]  rx_byte;         //spi_master to touch_rd
     logic               rx_valid;
     logic               ds_tx_valid;     //disp_seq's request
     logic        [7:0]  ds_tx_byte;
     logic               ds_tx_dc;
     logic               ds_tx_last;
-    logic               ds_tx_ready;
+    logic               ds_tx_ready_ps;
     logic               tp_tx_valid;     //touch_rd's request
     logic        [7:0]  tp_tx_byte;
     logic               tp_tx_last;
-    logic               tp_tx_ready;
+    logic               tp_tx_ready_ps;
 
     assign tx_valid    = tp_busy ? tp_tx_valid : ds_tx_valid;    //touch_rd's request while it runs, else disp_seq's
     assign tx_byte     = tp_busy ? tp_tx_byte  : ds_tx_byte;
     assign tx_dc       = tp_busy ? 1'b1        : ds_tx_dc;        //a touch frame is all data; disp_seq sets dc per byte
     assign tx_dev      = tp_busy;                                 //1 selects the touch controller
     assign tx_last     = tp_busy ? tp_tx_last  : ds_tx_last;
-    assign ds_tx_ready = tx_ready & ~tp_busy;                     //the grant reaches disp_seq only while it is selected
-    assign tp_tx_ready = tx_ready & tp_busy;                      //and touch_rd only while it is
+    assign ds_tx_ready_ps = tx_ready_ps & ~tp_busy;               //the grant reaches disp_seq only while it is selected
+    assign tp_tx_ready_ps = tx_ready_ps & tp_busy;                //and touch_rd only while it is
 
     spi_master i_spi_master(
         .clk,            //rising edge
@@ -447,7 +477,7 @@ generate
         .tx_dc,          //dc level for the byte
         .tx_dev,         //0 screen, 1 touch
         .tx_last,        //ends the frame
-        .tx_ready,       //pulse: the byte is taken; gated to the selected requester above
+        .tx_ready_ps,    //pulse: the byte is taken; gated to the selected requester above
         .rx_byte,        //the byte received during the byte just ended
         .rx_valid,       //pulse: rx_byte is valid
         .miso_s,         //synchronized touch data
@@ -460,62 +490,62 @@ generate
         );
 
     disp_seq #(.HAS_ATTRACT(HAS_ATTRACT)) i_disp_seq(
-        .clk,            //rising edge
-        .rst_n(rst_n_s), //asynchronous, active low
-        .cmd,            //the command byte; DRAW_*, PT_*, TCH_MAP, ATT_FRAME
-        .arg_we,         //pulse: an argument byte is on arg_byte
-        .arg_idx,        //the argument's index, 0 first
-        .arg_byte,       //the argument byte
-        .go,             //pulse: the command is complete, after its last argument
-        .reg_we,         //register write strobe; 0x00 to 0x03
-        .reg_addr,       //register address
-        .reg_wdata,      //register write data
-        .ds_tx_valid,    //byte request to spi_master (tx_dev = 0)
-        .ds_tx_byte,     //the byte to send
-        .ds_tx_dc,       //dc level for the byte
-        .ds_tx_last,     //ends the frame
-        .ds_tx_ready,    //spi_master's tx_ready, gated above
-        .spi_busy,       //the frame's end
-        .disp_pair_req,  //DRAW_IMG's request to the image ring
-        .disp_pair_idx,  //the pair requested
-        .pair,           //the pair, from dp_img
-        .pair_ack,       //the pair is the one requested
-        .disp_acc_req,   //DRAW_BARS's request to the accumulator ring
-        .disp_acc_idx,   //the accumulator requested
-        .acc_val,        //the ring's head, from dp_acc
-        .acc_ack,        //the head is the one requested
-        .winner,         //from dp_acc
-        .win_valid,      //valid of winner
-        .wm_req,         //TCH_MAP's weight request
-        .wm_idx,         //the weight requested
-        .wm_w,           //the weight, from teach
-        .wm_ack,         //the weight is the one requested
-        .att_cx,         //ATT_FRAME's CX argument, to attract
-        .att_cy,         //ATT_FRAME's CY argument, to attract
-        .att_relu,       //ATT_FRAME's ReLU argument, to attract
-        .att_ch_we,      //attract's channel write strobes into the next-color register
-        .att_ch_val,     //the channel value written
-        .att_full,       //the next color is complete
-        .att_take,       //pulse: the next color moved to the current color
-        .ds_busy         //a frame in progress; low by the third clock after spi_busy falls
+        .clk,             //rising edge
+        .rst_n(rst_n_s),  //asynchronous, active low
+        .cmd,             //the command byte; DRAW_*, PT_*, TCH_MAP, ATT_FRAME
+        .arg_valid,       //pulse: an argument byte is on arg_byte
+        .arg_idx,         //the argument's index, 0 first
+        .arg_byte,        //the argument byte
+        .go_ps,           //pulse: the command is complete, after its last argument
+        .reg_we,          //register write strobe; 0x00 to 0x03
+        .reg_addr,        //register address
+        .reg_wdata,       //register write data
+        .ds_tx_valid,     //byte request to spi_master (tx_dev = 0)
+        .ds_tx_byte,      //the byte to send
+        .ds_tx_dc,        //dc level for the byte
+        .ds_tx_last,      //ends the frame
+        .ds_tx_ready_ps,  //spi_master's tx_ready_ps, gated above
+        .spi_busy,        //the frame's end
+        .disp_pair_req,   //DRAW_IMG's request to the image ring
+        .disp_pair_idx,   //the pair requested
+        .pair,            //the pair, from dp_img
+        .pair_ack,        //the pair is the one requested
+        .disp_acc_req,    //DRAW_BARS's request to the accumulator ring
+        .disp_acc_idx,    //the accumulator requested
+        .acc_val,         //the ring's head, from dp_acc
+        .acc_ack,         //the head is the one requested
+        .winner,          //from dp_acc
+        .win_valid,       //valid of winner
+        .wm_req,          //TCH_MAP's weight request
+        .wm_idx,          //the weight requested
+        .wm_w,            //the weight, from teach
+        .wm_ack,          //the weight is the one requested
+        .att_cx,          //ATT_FRAME's CX argument, to attract
+        .att_cy,          //ATT_FRAME's CY argument, to attract
+        .att_relu,        //ATT_FRAME's ReLU argument, to attract
+        .att_ch_we,       //attract's channel write strobes into the next-color register
+        .att_ch_val,      //the channel value written
+        .att_full,        //the next color is complete
+        .att_take_ps,     //pulse: the next color moved to the current color
+        .ds_busy          //a frame in progress; low by the third clock after spi_busy falls
         );
 
     touch_rd i_touch_rd(
-        .clk,            //rising edge
-        .rst_n(rst_n_s), //asynchronous, active low
-        .cmd,            //the command byte; TP_READ and its control byte
-        .arg_we,         //pulse: an argument byte is on arg_byte
-        .arg_byte,       //the argument byte
-        .go,             //pulse: the command is complete, after its last argument
-        .tp_tx_valid,    //byte request to spi_master (tx_dev = 1, tx_dc = 1 above)
-        .tp_tx_byte,     //the byte to send
-        .tp_tx_last,     //ends the frame
-        .tp_tx_ready,    //spi_master's tx_ready, gated above
-        .rx_byte,        //the byte received, from spi_master
-        .rx_valid,       //pulse: rx_byte is valid
-        .tp_value,       //the last conversion
-        .tp_valid,       //1 from the conversion's end until the next TP_READ's go
-        .tp_busy         //from go until the value is stored
+        .clk,             //rising edge
+        .rst_n(rst_n_s),  //asynchronous, active low
+        .cmd,             //the command byte; TP_READ and its control byte
+        .arg_valid,       //pulse: an argument byte is on arg_byte
+        .arg_byte,        //the argument byte
+        .go_ps,           //pulse: the command is complete, after its last argument
+        .tp_tx_valid,     //byte request to spi_master (tx_dev = 1, tx_dc = 1 above)
+        .tp_tx_byte,      //the byte to send
+        .tp_tx_last,      //ends the frame
+        .tp_tx_ready_ps,  //spi_master's tx_ready_ps, gated above
+        .rx_byte,         //the byte received, from spi_master
+        .rx_valid,        //pulse: rx_byte is valid
+        .tp_value,        //the last conversion
+        .tp_valid,        //1 from the conversion's end until the next TP_READ's go_ps
+        .tp_busy          //from go_ps until the value is stored
         );
   end
   else
@@ -539,7 +569,7 @@ generate
     assign att_cx   = 8'd0;
     assign att_cy   = 7'd0;
     assign att_relu = 1'b0;
-    assign att_take = 1'b0;
+    assign att_take_ps = 1'b0;
     end
 
   if(HAS_DIGIT)
@@ -551,32 +581,32 @@ generate
         .clk,            //rising edge
         .rst_n(rst_n_s), //asynchronous, active low; resets ipos only
         .cmd,            //the command byte; IMG bytes
-        .arg_we,         //pulse: an argument byte is on arg_byte
+        .arg_valid,      //pulse: an argument byte is on arg_byte
         .arg_byte,       //the argument byte
         .pair_req,       //read request for pair pair_idx
         .pair_idx,       //i: the pair {code(2i+1), code(2i)}
         .pair,           //the pair
         .pair_ack,       //1 while the pair's byte is at the head and pair_req = 1
-        .img_seek0,      //teach: move byte 0 to the head
+        .img_seek_byte0, //teach: move byte 0 to the head
         .img_step,       //teach: step one byte
         .img_split,      //attract: two 8-byte rings, bytes 0 to 7 (A) and 8 to 15 (B)
         .img_en_a,       //attract: shift ring A (bytes 0 to 7)
         .img_tail_a,     //what ring A's tail takes
         .img_en_b,       //attract: shift ring B (bytes 8 to 15)
         .img_tail_b,     //what ring B's tail takes
-        .img_head0,      //ring[0], the head
+        .img_head_byte,  //ring[0], the head
         .img_head8,      //ring[8]
-        .img_at0         //the head is byte 0
+        .img_at_byte0    //the head is byte 0
         );
 
     dp_walk i_dp_walk(
         .clk,            //rising edge
-        .rst_n(rst_n_s), //asynchronous, active low; resets the walker's state (DIG_START's go clears i and j)
-        .cmd,            //the command byte; TILE bytes and go; DIG_START's go clears i and j
-        .arg_we,         //pulse: an argument byte is on arg_byte
+        .rst_n(rst_n_s), //asynchronous, active low; resets the walker's state (DIG_START's go_ps clears i and j)
+        .cmd,            //the command byte; TILE bytes and go_ps; DIG_START's go_ps clears i and j
+        .arg_valid,      //pulse: an argument byte is on arg_byte
         .arg_idx,        //the argument's index, 0 first
         .arg_byte,       //the argument byte
-        .go,             //pulse: the command is complete, after its last argument
+        .go_ps,          //pulse: the command is complete, after its last argument
         .walk_pair_req,  //request for pair i
         .walk_pair_idx,  //i
         .pair,           //the pair, from dp_img
@@ -599,10 +629,10 @@ generate
     dp_acc i_dp_acc(
         .clk,            //rising edge
         .rst_n(rst_n_s), //asynchronous, active low; resets apos, win_valid, am_busy and the argmax state
-        .cmd,            //the command byte; DIG_START biases and go (clears WIN_VALID); DIG_ARGMAX go
-        .arg_we,         //pulse: an argument byte is on arg_byte
+        .cmd,            //the command byte; DIG_START biases and go_ps (clears WIN_VALID); DIG_ARGMAX go_ps
+        .arg_valid,      //pulse: an argument byte is on arg_byte
         .arg_byte,       //the argument byte
-        .go,             //pulse: the command is complete, after its last argument
+        .go_ps,          //pulse: the command is complete, after its last argument
         .acc_req,        //read request for accumulator acc_idx
         .acc_idx,        //k, the accumulator requested
         .acc_val,        //the head
@@ -611,7 +641,7 @@ generate
         .acc_add_val,    //the value added
         .winner,         //the argmax result
         .win_valid,      //valid of winner
-        .am_done,        //pulses at the end of an argmax
+        .am_done_ps,     //pulses at the end of an argmax
         .am_busy         //argmax in progress
         );
   end
@@ -628,7 +658,7 @@ generate
       assign acc_ack    = 1'b0;
       assign winner     = 4'd0;
       assign win_valid  = 1'b0;
-      assign am_done    = 1'b0;
+      assign am_done_ps = 1'b0;
       assign walk_pair_req = 1'b0;
       assign walk_pair_idx = 5'd0;
       assign walk_acc_req  = 1'b0;
@@ -637,9 +667,9 @@ generate
       assign pair_ack      = 1'b0;
       assign acc_add       = 1'b0;
       assign acc_add_val   = 12'd0;
-      assign img_head0     = 8'd0;
+      assign img_head_byte = 8'd0;
       assign img_head8     = 8'd0;
-      assign img_at0       = 1'b0;
+      assign img_at_byte0  = 1'b0;
   end
 
   if(HAS_TEACH)
@@ -650,35 +680,35 @@ generate
     logic        [1:0]  tr_sel;
     logic signed [5:0]  tr_in;
     logic signed [5:0]  tr_head;
-    logic        [6:0]  tr_hpos;
+    logic        [6:0]  tr_head_pos;
 
     tch_ring i_tch_ring(
         .clk,            //rising edge
-        .rst_n(rst_n_s), //asynchronous, active low; resets tr_hpos only
+        .rst_n(rst_n_s), //asynchronous, active low; resets tr_head_pos only
         .tr_sel,         //what the tail takes: 0 or 3 the head (keep), 1 tr_in (update), 2 zero (clear)
         .tr_in,          //the updated weight
         .tr_head,        //the word at the head
-        .tr_hpos         //the head position: 0 to 63 a pixel's weight, 64 the bias
+        .tr_head_pos     //the head position: 0 to 63 a pixel's weight, 64 the bias
         );
 
     teach i_teach(
         .clk,            //rising edge
         .rst_n(rst_n_s), //asynchronous, active low; resets TSTEP, TMARGIN, LEARNED, the phase and the counter
         .cmd,            //the command byte; TCH_CLEAR, TCH_SCORE, TCH_LEARN and its label byte
-        .arg_we,         //pulse: an argument byte is on arg_byte
+        .arg_valid,      //pulse: an argument byte is on arg_byte
         .arg_byte,       //the argument byte
-        .go,             //pulse: the command is complete, after its last argument
+        .go_ps,          //pulse: the command is complete, after its last argument
         .reg_we,         //register write strobe; TSTEP 0x1E, TMARGIN 0x1F and 0x20
         .reg_addr,       //register address
         .reg_wdata,      //register write data
         .tr_sel,         //what the ring's tail takes
         .tr_in,          //the updated weight, to the ring
         .tr_head,        //the word at the ring's head
-        .tr_hpos,        //the head position
-        .img_seek0,      //move byte 0 to the image ring's head
+        .tr_head_pos,    //the head position
+        .img_seek_byte0, //move byte 0 to the image ring's head
         .img_step,       //step the image ring one byte
-        .img_head0,      //the image ring's head byte
-        .img_at0,        //the head is byte 0
+        .img_head_byte,  //the image ring's head byte
+        .img_at_byte0,   //the head is byte 0
         .tch_sel,        //teach owns the array's dp_ port
         .tch_w_ld,       //weight load bits into the array
         .tch_w,          //the weights into the array
@@ -688,8 +718,8 @@ generate
         .tch_ma_clr,     //read PH as 0 in this clock's add
         .tch_ma_pe,      //add p0, the array's first product
         .tch_ma_b,       //the addend
-        .ma_q,           //PH, from requant
-        .ma_neg,         //sign of the 19-bit sum, from requant
+        .ma_sum,         //PH, from requant
+        .ma_sum_neg,     //sign of the 19-bit sum, from requant
         .tch_score,      //TCH_READ: the score
         .tch_learned,    //TCH_READ: LEARNED
         .tch_bias,       //TCH_READ: the bias word
@@ -703,24 +733,24 @@ generate
   end
   else
   begin: without_teach
-      assign t_busy      = 1'b0;
-      assign tch_sel     = 1'b0;
-      assign tch_w_ld    = 4'd0;
-      assign tch_w       = 32'd0;
-      assign tch_a       = 16'd0;
-      assign tch_ma_sel  = 1'b0;
-      assign tch_ma_we   = 1'b0;
-      assign tch_ma_clr  = 1'b0;
-      assign tch_ma_pe   = 1'b0;
-      assign tch_ma_b    = 17'd0;
-      assign tch_score   = 16'd0;
-      assign tch_learned = 1'b0;
-      assign tch_bias    = 8'd0;
-      assign tch_bias_ok = 1'b0;
-      assign img_seek0   = 1'b0;
-      assign img_step    = 1'b0;
-      assign wm_w        = 8'd0;
-      assign wm_ack      = 1'b0;
+      assign t_busy          = 1'b0;
+      assign tch_sel         = 1'b0;
+      assign tch_w_ld        = 4'd0;
+      assign tch_w           = 32'd0;
+      assign tch_a           = 16'd0;
+      assign tch_ma_sel      = 1'b0;
+      assign tch_ma_we       = 1'b0;
+      assign tch_ma_clr      = 1'b0;
+      assign tch_ma_pe       = 1'b0;
+      assign tch_ma_b        = 17'd0;
+      assign tch_score       = 16'd0;
+      assign tch_learned     = 1'b0;
+      assign tch_bias        = 8'd0;
+      assign tch_bias_ok     = 1'b0;
+      assign img_seek_byte0  = 1'b0;
+      assign img_step        = 1'b0;
+      assign wm_w            = 8'd0;
+      assign wm_ack          = 1'b0;
   end
 
   if(HAS_ATTRACT)
@@ -795,9 +825,10 @@ assign uio_oe  = 8'b0101_1111;
 
 //Unused signals: the inputs and the block outputs that some choice of the four parameters leaves unread, gathered
 //in one reduction as the template does, so the lint does not report them.
-wire unused = &{1'b0, ena, uio_in[6], uio_in[4:0], miso_s, arg_idx, dp_p, dp_p_valid, ma_q, ma_neg, dec_acc_req, dec_acc_idx,
-                img_head0, img_head8, img_at0, pair_req, pair_idx, acc_req, acc_idx, pair, pair_ack, acc_add, acc_add_val,
-                img_seek0, img_step, img_split, img_en_a, img_tail_a, img_en_b, img_tail_b, wm_req, wm_idx, wm_w,
-                wm_ack, att_cx, att_cy, att_relu, att_take, att_ch_we, att_ch_val, att_full};
+wire unused = &{1'b0, ena, uio_in[6], uio_in[4:0], miso_s, arg_idx, dp_p, dp_p_valid, ma_sum, ma_sum_neg,
+                dec_acc_req, dec_acc_idx, img_head_byte, img_head8, img_at_byte0, pair_req, pair_idx, acc_req,
+                acc_idx, pair, pair_ack, acc_add, acc_add_val, img_seek_byte0, img_step, img_split, img_en_a,
+                img_tail_a, img_en_b, img_tail_b, wm_req, wm_idx, wm_w, wm_ack, att_cx, att_cy, att_relu,
+                att_take_ps, att_ch_we, att_ch_val, att_full};
 
 endmodule

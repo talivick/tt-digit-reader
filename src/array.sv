@@ -66,7 +66,8 @@ logic        unused_v_01;
 //                                                  p0_deskew                              |
 //                                                      v                                  v
 //                                                 p_out[16:0]                        p_out[33:17]
-always_ff @(posedge clk or negedge rst_n) //asynchronous clear; rst_n comes from the top's reset synchronizer, so it falls at once and rises on a clock edge
+//asynchronous clear; rst_n comes from the top's reset synchronizer, so it falls at once and rises on a clock edge
+always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         v1_skew <= 1'b0;
     else if(en)

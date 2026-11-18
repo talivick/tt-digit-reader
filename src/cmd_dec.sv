@@ -21,18 +21,18 @@
 //   A byte is taken while "in_valid_s" is high and ARMED is 1; ARMED is the flag that
 //   sets once "in_valid_s" has been low after reset. A read puts the response on
 //   "resp_byte" with "resp_oe" high.
-//   Argument byte k pulses "arg_we" with "arg_idx" = k and "arg_byte"; "go" pulses after
+//   Argument byte k pulses "arg_valid" with "arg_idx" = k and "arg_byte"; "go_ps" pulses after
 //   the last argument, or after the command byte when there is none. REG_WR to a mapped
-//   address pulses "reg_we", MX_START "mx_start", CLR_ERR "err_clr", MX_READ "res_ready"
+//   address pulses "reg_we", MX_START "mx_start", CLR_ERR "err_clr", MX_READ "res_ready_ps"
 //   for a waiting result and MX_ROW "row_valid"; a row with "row_ready" low sets ERR_OVF.
 //   NOP, ID, STATUS and CLR_ERR are always served. Any other command byte is held,
 //   "in_ready" low, while "disp_busy" or "walk_busy" is high; during a matrix run TILE,
-//   TCH_SCORE, TCH_LEARN and ATT_FRAME are taken and ignored, with ERR_BUSY.
+//   TCH_SCORE and TCH_LEARN are taken and ignored, with ERR_BUSY.
 //   A response byte that needs a block waits for "tp_valid", "acc_ack" or "tch_bias_ok".
 //
 // Timing
 //   "in_ready" rises one clock after the take and falls one edge after "in_valid_s"
-//   falls. A block raises its busy no later than one clock after "go".
+//   falls. A block raises its busy no later than one clock after "go_ps".
 //
 // Reset
 //   "rst_n" is asynchronous and active low. It resets the handshake to idle, "resp_oe",
@@ -41,52 +41,54 @@
 `default_nettype none
 
 module cmd_dec #(
-    parameter bit HAS_DIGIT = 1'b1,         //digit path present; with HAS_DISPLAY it sets the 6-bit form code in ID's second byte
-    parameter bit HAS_DISPLAY = 1'b1,       //display path present
-    parameter bit HAS_TEACH = 1'b1,         //teach mode present (ID bit 7)
-    parameter bit HAS_ATTRACT = 1'b0        //attract mode present (ID bit 6); 0 in this chip
+    //digit path present; with HAS_DISPLAY it sets the 6-bit form code in ID's second byte
+    parameter bit HAS_DIGIT = 1'b1,
+    parameter bit HAS_DISPLAY = 1'b1,         //display path present
+    parameter bit HAS_TEACH = 1'b1,           //teach mode present (ID bit 7)
+    parameter bit HAS_ATTRACT = 1'b0          //attract mode present (ID bit 6); 0 in this chip
 ) (
-    input  logic               clk,          //rising edge
-    input  logic               rst_n,        //asynchronous, active low; resets the handshake state, ARMED and the status bits
-    input  logic               in_valid_s,   //the synchronized in_valid
-    input  logic        [7:0]  ui_in,        //the host byte
-    output logic               in_ready,     //to uio_out[6]
-    output logic        [7:0]  resp_byte,    //the response byte
-    output logic               resp_oe,      //select the response onto uo_out
-    output logic        [7:0]  cmd,          //the command byte; command bus to the blocks
-    output logic               arg_we,       //pulse: an argument byte is on arg_byte
-    output logic        [3:0]  arg_idx,      //the argument's index, 0 first
-    output logic        [7:0]  arg_byte,     //the argument byte
-    output logic               go,           //pulse: the command is complete, after its last argument
-    output logic               reg_we,       //register write strobe; register bus (REG_WR)
-    output logic        [7:0]  reg_addr,     //register address
-    output logic        [7:0]  reg_wdata,    //register write data
-    output logic               mx_start,     //pulse to ctrl: start a run
-    output logic               err_clr,      //pulse to ctrl: clear mx_err
-    output logic               row_valid,    //MX_ROW: a row is offered to mx_top
-    output logic        [15:0] row_data,     //the row
-    input  logic               row_ready,    //from mx_top
-    input  logic               res_valid,    //MX_READ: a result is ready
-    input  logic        [15:0] res_data,     //the result
-    output logic               res_ready,    //pops the result
-    input  logic        [1:0]  fifo_count,   //status input
-    input  logic               mx_busy,      //status input
-    input  logic               mx_done,      //status input
-    input  logic               mx_err,       //status input
-    input  logic               disp_busy,    //hold input: the display is busy
-    input  logic               walk_busy,    //hold input: the walker is busy
-    input  logic        [11:0] tp_value,     //TP_READ's value
-    input  logic               tp_valid,     //valid of tp_value
-    output logic               dec_acc_req,  //DIG_READ's request to the accumulator ring
-    output logic        [3:0]  dec_acc_idx,  //the accumulator requested
-    input  logic signed [11:0] acc_val,      //the ring's head
-    input  logic               acc_ack,      //the head is the one requested
-    input  logic        [3:0]  winner,       //the argmax winner (DIG_READ and S2)
-    input  logic               win_valid,    //valid of winner
-    input  logic signed [15:0] tch_score,    //TCH_READ: the score
-    input  logic               tch_learned,  //TCH_READ: LEARNED
-    input  logic signed [7:0]  tch_bias,     //TCH_READ: the bias word
-    input  logic               tch_bias_ok   //TCH_READ: the bias word is at the teach ring's head
+    input  logic               clk,           //rising edge
+    //asynchronous, active low; resets the handshake state, ARMED and the status bits
+    input  logic               rst_n,
+    input  logic               in_valid_s,    //the synchronized in_valid
+    input  logic        [7:0]  ui_in,         //the host byte
+    output logic               in_ready,      //to uio_out[6]
+    output logic        [7:0]  resp_byte,     //the response byte
+    output logic               resp_oe,       //select the response onto uo_out
+    output logic        [7:0]  cmd,           //the command byte; command bus to the blocks
+    output logic               arg_valid,     //pulse: an argument byte is on arg_byte
+    output logic        [3:0]  arg_idx,       //the argument's index, 0 first
+    output logic        [7:0]  arg_byte,      //the argument byte
+    output logic               go_ps,         //pulse: the command is complete, after its last argument
+    output logic               reg_we,        //register write strobe; register bus (REG_WR)
+    output logic        [7:0]  reg_addr,      //register address
+    output logic        [7:0]  reg_wdata,     //register write data
+    output logic               mx_start,      //pulse to ctrl: start a run
+    output logic               err_clr,       //pulse to ctrl: clear mx_err
+    output logic               row_valid,     //MX_ROW: a row is offered to mx_top
+    output logic        [15:0] row_data,      //the row
+    input  logic               row_ready,     //from mx_top
+    input  logic               res_valid,     //MX_READ: a result is ready
+    input  logic        [15:0] res_data,      //the result
+    output logic               res_ready_ps,  //pulse: pops the result
+    input  logic        [1:0]  fifo_count,    //status input
+    input  logic               mx_busy,       //status input
+    input  logic               mx_done,       //status input
+    input  logic               mx_err,        //status input
+    input  logic               disp_busy,     //hold input: the display is busy
+    input  logic               walk_busy,     //hold input: the walker is busy
+    input  logic        [11:0] tp_value,      //TP_READ's value
+    input  logic               tp_valid,      //valid of tp_value
+    output logic               dec_acc_req,   //DIG_READ's request to the accumulator ring
+    output logic        [3:0]  dec_acc_idx,   //the accumulator requested
+    input  logic signed [11:0] acc_val,       //the ring's head
+    input  logic               acc_ack,       //the head is the one requested
+    input  logic        [3:0]  winner,        //the argmax winner (DIG_READ and S2)
+    input  logic               win_valid,     //valid of winner
+    input  logic signed [15:0] tch_score,     //TCH_READ: the score
+    input  logic               tch_learned,   //TCH_READ: LEARNED
+    input  logic signed [7:0]  tch_bias,      //TCH_READ: the bias word
+    input  logic               tch_bias_ok    //TCH_READ: the bias word is at the teach ring's head
 );
 
 
@@ -111,37 +113,43 @@ localparam logic [1:0] HS_IDLE = 2'd0, HS_PREP = 2'd1, HS_ACK = 2'd2;
 localparam logic [1:0] PHASE_CMD = 2'd0, PHASE_ARG = 2'd1, PHASE_RESP = 2'd2;
 
 
-logic       armed;       //1 once in_valid_s has been 0 after a reset; no byte is taken before that
-logic [1:0] hs_state;    //HS_IDLE waits for a byte; HS_PREP is the clock after a take; HS_ACK holds in_ready at 1
-logic [1:0] phase;       //which byte of the transfer comes next: the command byte, an argument byte or a response byte
-logic [4:0] byte_idx;    //the argument or response byte being taken, 0 first; 5 bits for DIG_READ's 21 response bytes
-logic       rst_seen;    //1 after a reset until STATUS supplies S1; S1 bit 7
-logic       err_cmd;     //an unknown command byte, or a REG_WR to an address no block owns; S1 bit 0
-logic       err_busy;    //a TILE taken during a matrix run and ignored; S1 bit 1
-logic       err_ovf;     //a MX_ROW row arrived while mx_top could not take it (row_ready = 0); S1 bit 2
-logic       v;           //the copy of res_valid taken when MX_READ's first response byte is loaded; bytes 2 and 3 and res_ready use it
-logic       refused;     //the transfer was refused in a matrix run (TILE, TCH_LEARN): no arg_we and no go for its bytes
-logic       held;        //the command byte must wait: the display or the walker is busy and it is not NOP, ID, STATUS or CLR_ERR
-logic       take;        //1 in the clock a byte is taken from ui_in or a response byte is loaded
-logic [7:0] code;        //the command being decoded: ui_in for the command byte, afterwards the stored cmd
-logic       known;       //code is a command this decoder knows; an unknown command byte sets err_cmd
-logic [4:0] arg_count;   //the number of argument bytes of code
-logic [4:0] resp_count;  //the number of response bytes of code
-logic       last;        //1 when byte_idx is the last argument byte or the last response byte of code
-logic       take_cmd;    //take split by phase: the command byte
-logic       take_arg;    //an argument byte
-logic       take_resp;   //a response byte
-logic       mapped;      //the REG_WR address exists in this build; the assign in part 3 has the ranges
-logic [7:0] s0;          //status byte 0
-logic [7:0] s1;          //status byte 1
-logic [7:0] s2;          //status byte 2
-logic [5:0] form_code;   //ID's second byte, bits 5:0: which blocks this build has
-logic [7:0] resp_mux;    //the response byte for code and byte_idx; loaded into resp_byte at the take
-logic       refuse;      //the command byte on ui_in is TILE, TCH_SCORE or TCH_LEARN and the matrix unit is busy
-logic [4:0] acc_pos;     //DIG_READ response byte n (1 to 20) gives n - 1: bits 4:1 the accumulator, bit 0 the low byte
-logic       acc_wait;    //a DIG_READ accumulator byte waits for the accumulator ring to deliver the one asked for
-logic       tp_wait;     //TP_READ's first response byte waits for the touch conversion to end
-logic       tch_wait;    //TCH_READ's fourth response byte waits for the bias to reach the teach ring's head
+logic       armed;            //1 once in_valid_s has been 0 after a reset; no byte is taken before that
+logic [1:0] handshake_state;  //HS_IDLE waits for a byte; HS_PREP is the clock after a take; HS_ACK holds in_ready at 1
+//which byte of the transfer comes next: the command byte, an argument byte or a response byte
+logic [1:0] phase;
+//the argument or response byte being taken, 0 first; 5 bits for DIG_READ's 21 response bytes
+logic [4:0] byte_idx;
+logic       rst_seen;         //1 after a reset until STATUS supplies S1; S1 bit 7
+logic       err_cmd;          //an unknown command byte, or a REG_WR to an address no block owns; S1 bit 0
+logic       err_busy;         //a TILE, TCH_SCORE or TCH_LEARN taken during a matrix run and ignored; S1 bit 1
+logic       err_ovf;          //a MX_ROW row arrived while mx_top could not take it (row_ready = 0); S1 bit 2
+//the copy of res_valid taken when MX_READ's first response byte is loaded; bytes 2 and 3 and res_ready_ps use it
+logic       v;
+//refused in a matrix run (TILE, TCH_SCORE, TCH_LEARN): no arg_valid and no go_ps for its bytes
+logic       refused;
+//the command byte must wait: the display or the walker is busy and it is not NOP, ID, STATUS or CLR_ERR
+logic       cmd_wait;
+logic       take_ps;          //1 in the clock a byte is taken from ui_in or a response byte is loaded
+logic [7:0] code;             //the command being decoded: ui_in for the command byte, afterwards the stored cmd
+logic       known;            //code is a command this decoder knows; an unknown command byte sets err_cmd
+logic [4:0] arg_count;        //the number of argument bytes of code
+logic [4:0] resp_count;       //the number of response bytes of code
+logic       last;             //1 when byte_idx is the last argument byte or the last response byte of code
+logic       take_cmd_ps;      //take_ps split by phase: the command byte
+logic       take_arg_ps;      //an argument byte
+logic       take_resp_ps;     //a response byte
+logic       mapped;           //the REG_WR address exists in this build; the assign in part 3 has the ranges
+logic [7:0] s0;               //status byte 0
+logic [7:0] s1;               //status byte 1
+logic [7:0] s2;               //status byte 2
+logic [5:0] form_code;        //ID's second byte, bits 5:0: which blocks this build has
+logic [7:0] resp_mux;         //the response byte for code and byte_idx; loaded into resp_byte at the take
+logic       refuse;           //the command byte on ui_in is TILE, TCH_SCORE or TCH_LEARN and the matrix unit is busy
+//DIG_READ response byte n (1 to 20) gives n - 1: bits 4:1 the accumulator, bit 0 the low byte
+logic [4:0] acc_pos;
+logic       acc_wait;         //a DIG_READ accumulator byte waits for the accumulator ring to deliver the one asked for
+logic       tp_wait;          //TP_READ's first response byte waits for the touch conversion to end
+logic       tch_wait;         //TCH_READ's fourth response byte waits for the bias to reach the teach ring's head
 
 
 //--------------------------------------------------------------------------------------------------------------------
@@ -149,48 +157,48 @@ logic       tch_wait;    //TCH_READ's fourth response byte waits for the bias to
 //--------------------------------------------------------------------------------------------------------------------
 
 //Byte capture: a byte is taken when the handshake is idle, the decoder is armed, the host has raised
-//in_valid_s, and nothing holds the byte back. held keeps a command byte waiting while the display or the
+//in_valid_s, and nothing holds the byte back. cmd_wait keeps a command byte waiting while the display or the
 //tile walker is busy; acc_wait keeps a DIG_READ response byte waiting until the accumulator ring has the value;
 //tp_wait keeps TP_READ's first response byte waiting until the touch conversion has ended; tch_wait keeps
 //TCH_READ's last byte, the bias, waiting until the teach ring brings the bias to its head.
-assign held = (phase == PHASE_CMD) & (disp_busy | walk_busy) & (ui_in > 8'h03);   
-assign take = (hs_state == HS_IDLE) & armed & in_valid_s & ~held & ~acc_wait & ~tp_wait & ~tch_wait;
+assign cmd_wait = (phase == PHASE_CMD) & (disp_busy | walk_busy) & (ui_in > 8'h03); 
+assign take_ps = (handshake_state == HS_IDLE) & armed & in_valid_s & ~cmd_wait & ~acc_wait & ~tp_wait & ~tch_wait;
 
 
-//Handshake: the four-phase handshake with the host. take is the clock the byte is captured. One
-//clock later hs_state is HS_PREP and in_ready rises. in_ready and the response stay until the host lowers
+//Handshake: the four-phase handshake with the host. take_ps is the clock the byte is captured. One
+//clock later handshake_state is HS_PREP and in_ready rises. in_ready and the response stay until the host lowers
 //in_valid; then both fall and the handshake is idle again. armed blocks every byte until in_valid_s has
 //been 0 once after reset, so a host holding in_valid high through the reset gets no byte taken by mistake.
 always_ff @(posedge clk or negedge rst_n)
     begin
     if(~rst_n)
         begin
-        armed       <= 1'b0;
-        hs_state    <= HS_IDLE;
-        in_ready    <= 1'b0;
-        resp_oe     <= 1'b0;
+        armed           <= 1'b0;
+        handshake_state <= HS_IDLE;
+        in_ready        <= 1'b0;
+        resp_oe         <= 1'b0;
         end
     else
         begin
         if(~in_valid_s)
-            armed       <= 1'b1;
+            armed           <= 1'b1;
 
-        if(take)
-            hs_state    <= HS_PREP;
-        else if(hs_state == HS_PREP)
-            hs_state    <= HS_ACK;
-        else if((hs_state == HS_ACK) & ~in_valid_s)
-            hs_state    <= HS_IDLE;
+        if(take_ps)
+            handshake_state <= HS_PREP;
+        else if(handshake_state == HS_PREP)
+            handshake_state <= HS_ACK;
+        else if((handshake_state == HS_ACK) & ~in_valid_s)
+            handshake_state <= HS_IDLE;
 
-        if(hs_state == HS_PREP)
-            in_ready    <= 1'b1;
-        else if((hs_state == HS_ACK) & ~in_valid_s)
-            in_ready    <= 1'b0;
+        if(handshake_state == HS_PREP)
+            in_ready        <= 1'b1;
+        else if((handshake_state == HS_ACK) & ~in_valid_s)
+            in_ready        <= 1'b0;
 
-        if(take_resp)
-            resp_oe     <= 1'b1;
-        else if((hs_state == HS_ACK) & ~in_valid_s)
-            resp_oe     <= 1'b0;
+        if(take_resp_ps)
+            resp_oe         <= 1'b1;
+        else if((handshake_state == HS_ACK) & ~in_valid_s)
+            resp_oe         <= 1'b0;
         end
     end
 
@@ -260,9 +268,9 @@ always_comb
     endcase
     end
 
-assign take_cmd = take & (phase == PHASE_CMD);
-assign take_arg = take & (phase == PHASE_ARG);
-assign take_resp = take & (phase == PHASE_RESP);
+assign take_cmd_ps = take_ps & (phase == PHASE_CMD);
+assign take_arg_ps = take_ps & (phase == PHASE_ARG);
+assign take_resp_ps = take_ps & (phase == PHASE_RESP);
 
 assign last = (phase == PHASE_ARG) ? (byte_idx == (arg_count - 5'd1)):
                                      (byte_idx == (resp_count - 5'd1));
@@ -284,22 +292,22 @@ always_ff @(posedge clk or negedge rst_n)
         end
     else    
         begin
-        if(take_cmd & known & (arg_count != 5'd0))
+        if(take_cmd_ps & known & (arg_count != 5'd0))
             phase       <= PHASE_ARG;
-        else if(take_cmd & known & (resp_count != 5'd0))
+        else if(take_cmd_ps & known & (resp_count != 5'd0))
             phase       <= PHASE_RESP;
-        else if(take_arg & last & (resp_count != 5'd0))
+        else if(take_arg_ps & last & (resp_count != 5'd0))
             phase       <= PHASE_RESP;
-        else if(take_arg & last)
+        else if(take_arg_ps & last)
             phase       <= PHASE_CMD;
-        else if(take_resp & last)
+        else if(take_resp_ps & last)
             phase       <= PHASE_CMD;
             
-        if(take_cmd)
+        if(take_cmd_ps)
             byte_idx    <= 5'd0;
-        else if(take_arg & last)
+        else if(take_arg_ps & last)
             byte_idx    <= 5'd0;
-        else if(take)   
+        else if(take_ps) 
             byte_idx    <= byte_idx + 5'd1;
         end
 
@@ -309,85 +317,85 @@ always_ff @(posedge clk or negedge rst_n)
 //--------------------------------------------------------------------------------------------------------------------
 
 //Data registers: the bytes kept from the bus, with no reset; each is written before it is read.
-//arg_byte and arg_idx go to the blocks with arg_we one clock later. REG_WR's two bytes are the address
+//arg_byte and arg_idx go to the blocks with arg_valid one clock later. REG_WR's two bytes are the address
 //and the data. MX_ROW's two bytes are the row, first byte low.
 always_ff @(posedge clk)
     begin
-    if(take_cmd)
+    if(take_cmd_ps)
         cmd         <= ui_in;
         
-    if(take_arg)
+    if(take_arg_ps)
         arg_byte    <= ui_in;        
-    if(take_arg)   
+    if(take_arg_ps) 
         arg_idx     <= byte_idx[3:0];
         
-    if(take_arg & (code == REG_WR) & (byte_idx == 5'd0))
+    if(take_arg_ps & (code == REG_WR) & (byte_idx == 5'd0))
         reg_addr    <= ui_in;       
-    if(take_arg & (code == REG_WR) & (byte_idx == 5'd1))
+    if(take_arg_ps & (code == REG_WR) & (byte_idx == 5'd1))
         reg_wdata   <= ui_in;
         
-    if(take_arg & (code == MX_ROW) & (byte_idx == 5'd0))
+    if(take_arg_ps & (code == MX_ROW) & (byte_idx == 5'd0))
         row_data[7:0]   <= ui_in;
-    if(take_arg & (code == MX_ROW) & (byte_idx == 5'd1))
+    if(take_arg_ps & (code == MX_ROW) & (byte_idx == 5'd1))
         row_data[15:8]  <= ui_in;
     end
 
 
-//Strobes to the blocks: each pulse is one clock wide, in the clock after the byte that causes it. go marks a
+//Strobes to the blocks: each pulse is one clock wide, in the clock after the byte that causes it. go_ps marks a
 //complete command: after the command byte when it has no arguments, else after the last argument.
-//A command refused in a matrix run gives no arg_we and no go: TILE and TCH_LEARN through the refused flag on
+//A command refused in a matrix run gives no arg_valid and no go_ps: TILE and TCH_LEARN through the refused flag on
 //their argument bytes, TCH_SCORE, which has no arguments, through refuse at its command byte. reg_we needs a
 //mapped address;
-//row_valid needs row_ready = 1 in the clock of the take; res_ready needs v = 1.
+//row_valid needs row_ready = 1 in the clock of the take; res_ready_ps needs v = 1.
 always_ff @(posedge clk or negedge rst_n)
     if(~rst_n)
         begin
-        arg_we      <= 1'b0;
-        go          <= 1'b0;
-        reg_we      <= 1'b0;
-        mx_start    <= 1'b0;
-        err_clr     <= 1'b0;
-        row_valid   <= 1'b0;
-        res_ready   <= 1'b0;
+        arg_valid    <= 1'b0;
+        go_ps        <= 1'b0;
+        reg_we       <= 1'b0;
+        mx_start     <= 1'b0;
+        err_clr      <= 1'b0;
+        row_valid    <= 1'b0;
+        res_ready_ps <= 1'b0;
         end
     else
         begin
-        if(take_arg & ~refused)
-            arg_we      <= 1'b1;
+        if(take_arg_ps & ~refused)
+            arg_valid    <= 1'b1;
         else
-            arg_we      <= 1'b0;
+            arg_valid    <= 1'b0;
             
-        if(take_cmd & known & (arg_count == 5'd0) & ~refuse)
-            go          <= 1'b1;
-        else if(take_arg & last & ~refused)
-            go          <= 1'b1;
+        if(take_cmd_ps & known & (arg_count == 5'd0) & ~refuse)
+            go_ps        <= 1'b1;
+        else if(take_arg_ps & last & ~refused)
+            go_ps        <= 1'b1;
         else
-            go          <= 1'b0;
+            go_ps        <= 1'b0;
         
-        if(take_arg & last & (code == REG_WR) & mapped)
-            reg_we      <= 1'b1;
+        if(take_arg_ps & last & (code == REG_WR) & mapped)
+            reg_we       <= 1'b1;
         else
-            reg_we      <= 1'b0;
+            reg_we       <= 1'b0;
         
-        if(take_cmd & (code == MX_START))
-            mx_start    <= 1'b1;
+        if(take_cmd_ps & (code == MX_START))
+            mx_start     <= 1'b1;
         else
-            mx_start    <= 1'b0;
+            mx_start     <= 1'b0;
             
-        if(take_cmd & (code == CLR_ERR))
-            err_clr     <= 1'b1;
+        if(take_cmd_ps & (code == CLR_ERR))
+            err_clr      <= 1'b1;
         else
-            err_clr     <= 1'b0;
+            err_clr      <= 1'b0;
             
-        if(take_arg & last & (code == MX_ROW) & row_ready)
-            row_valid   <= 1'b1;
+        if(take_arg_ps & last & (code == MX_ROW) & row_ready)
+            row_valid    <= 1'b1;
         else
-            row_valid   <= 1'b0;
+            row_valid    <= 1'b0;
             
-        if(take_resp & last & (code == MX_READ) & v) 
-            res_ready   <= 1'b1;
+        if(take_resp_ps & last & (code == MX_READ) & v) 
+            res_ready_ps <= 1'b1;
         else
-            res_ready   <= 1'b0;
+            res_ready_ps <= 1'b0;
         end
 
 //mapped: the REG_WR address exists in this build: the matrix unit's registers 0x10 to 0x1D, and with HAS_DISPLAY
@@ -415,22 +423,22 @@ always_ff @(posedge clk or negedge rst_n)
         end
     else
         begin
-        if(take_resp & (code == STATUS) & (byte_idx == 5'd1))
+        if(take_resp_ps & (code == STATUS) & (byte_idx == 5'd1))
             rst_seen    <= 1'b0;
             
-        if(take_cmd & ~known)
+        if(take_cmd_ps & ~known)
             err_cmd     <= 1'b1;
-        else if(take_arg & last & (code == REG_WR) & ~mapped)
+        else if(take_arg_ps & last & (code == REG_WR) & ~mapped)
             err_cmd     <= 1'b1;
         else if(err_clr)
             err_cmd     <= 1'b0;
             
-        if(take_cmd & refuse)
+        if(take_cmd_ps & refuse)
             err_busy    <= 1'b1;
         else if(err_clr)
             err_busy    <= 1'b0;
         
-        if(take_arg & last & (code == MX_ROW) & ~row_ready)
+        if(take_arg_ps & last & (code == MX_ROW) & ~row_ready)
             err_ovf     <= 1'b1;
         else if(err_clr)
             err_ovf     <= 1'b0;
@@ -455,7 +463,7 @@ assign s2 = {win_valid, 3'b000, winner};
 //What the next two bytes carry and whether the result is popped follow v, so a result arriving between the
 //bytes does not change the answer part way through.
 always_ff @(posedge clk)
-    if(take_resp & (code == MX_READ) & (byte_idx == 5'd0))
+    if(take_resp_ps & (code == MX_READ) & (byte_idx == 5'd0))
         v       <= res_valid;
 
 
@@ -488,7 +496,8 @@ always_comb
                 end
 
     DIG_READ:   begin if(byte_idx == 5'd0)       resp_mux = s2;
-                      else                       resp_mux = acc_pos[0] ? acc_val[7:0] : { {4{acc_val[11]}}, acc_val[11:8] };
+                      else if(acc_pos[0])        resp_mux = acc_val[7:0];
+                      else                       resp_mux = { {4{acc_val[11]}}, acc_val[11:8] };
                 end
 
     TP_READ:    begin if(byte_idx == 5'd0)       resp_mux = {4'b0000, tp_value[11:8]};
@@ -505,7 +514,7 @@ always_comb
     endcase
     
 always_ff @(posedge clk)
-    if(take_resp)
+    if(take_resp_ps)
         resp_byte   <= resp_mux;  //loaded in the clock of the take; the top puts it on uo_out while resp_oe is 1
 
 
@@ -515,7 +524,7 @@ always_ff @(posedge clk)
 
 //DIG_READ's accumulator bytes: from the clock after S2 is taken until the last byte, dec_acc_req asks
 //the accumulator ring for accumulator dec_acc_idx. The byte is taken only when acc_ack says the ring's
-//head is that accumulator; until then acc_wait holds take at 0 and the host waits on in_ready.
+//head is that accumulator; until then acc_wait holds take_ps at 0 and the host waits on in_ready.
 assign dec_acc_req = (phase == PHASE_RESP) & (code == DIG_READ) & (byte_idx != 5'd0);
 assign dec_acc_idx = acc_pos[4:1];
 
@@ -527,7 +536,7 @@ assign refuse = mx_busy & ((HAS_DIGIT & (code == TILE))
                          | (HAS_TEACH & HAS_DIGIT & ((code == TCH_SCORE) | (code == TCH_LEARN))));
 
 always_ff @(posedge clk)
-    if(take_cmd)
+    if(take_cmd_ps)
         refused <= refuse;
 
 
@@ -536,15 +545,15 @@ assign acc_pos = byte_idx - 5'd1;
 assign acc_wait = dec_acc_req & ~acc_ack;
 
 
-//tp_wait: TP_READ's first response byte is asked for and the touch conversion has not ended; it holds take at 0,
+//tp_wait: TP_READ's first response byte is asked for and the touch conversion has not ended; it holds take_ps at 0,
 //so in_ready stays low and the host waits. touch_rd raises tp_valid at the end of the conversion and drops it at
-//the next TP_READ's go, one clock after the control byte's take, before that read's first response byte can be
+//the next TP_READ's go_ps, one clock after the control byte's take, before that read's first response byte can be
 //taken.
 assign tp_wait = (phase == PHASE_RESP) & (code == TP_READ) & (byte_idx == 5'd0) & ~tp_valid;
 
 
 //tch_wait: TCH_READ's fourth response byte, the bias word, is asked for and the bias is not at the teach ring's
-//head; it holds take at 0 until the ring brings the bias around, at most 64 clocks. The take loads resp_byte in
+//head; it holds take_ps at 0 until the ring brings the bias around, at most 64 clocks. The take loads resp_byte in
 //that clock, so the byte is the head word of the clock in which tch_bias_ok is 1.
 assign tch_wait = (phase == PHASE_RESP) & (code == TCH_READ) & (byte_idx == 5'd3) & ~tch_bias_ok;
 
