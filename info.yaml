@@ -1,6 +1,6 @@
 # Tiny Tapeout project information
 project:
-  title:        "Tiny inference and learning coprocessor"      # Project title
+  title:        "INT8 systolic array coprocessor with on-chip learning and a touch LCD"      # Project title
   author:       "Thomas Livick"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
   description:  "An INT8 matrix unit, a 64-input ten-class classifier, an on-chip two-class learner and a touch LCD, driven by a host over a byte handshake"      # One line description of what your project does
