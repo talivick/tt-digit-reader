@@ -122,6 +122,12 @@ The sources are in `src/`, by block:
 `docs/` holds the datasheet page and its pictures. `test/` holds the test bench `tb.v` and the test `test.py`.
 `info.yaml` is the project's entry for Tiny Tapeout: the title, the pins and the list of sources.
 
+## AI assistance
+
+I wrote the RTL in `src/`. I used an AI assistant, Claude, to take the project further than I could have alone
+and to check it harder: it helped plan the design, reviewed my code, and built the fuller tests, the software
+model and the host program described above. It also drafted this documentation, which I edited.
+
 ## License
 
 Apache License 2.0, in [LICENSE](LICENSE). Copyright (c) 2026 Thomas Livick.
