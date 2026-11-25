@@ -124,9 +124,11 @@ The sources are in `src/`, by block:
 
 ## AI assistance
 
-I wrote the RTL in `src/`. I used an AI assistant, Claude, to take the project further than I could have alone
-and to check it harder: it helped plan the design, reviewed my code, and built the fuller tests, the software
-model and the host program described above. It also drafted this documentation, which I edited.
+I built this chip with an AI assistant, Claude, which took the project further than I could have alone. I chose
+what the chip does and its limits, and we worked out the design together. Claude wrote the design notes for
+each block, and I typed the RTL in `src/` from those notes, with some passages written by Claude. Claude also
+reviewed the code, built the fuller tests, the software model and the host program described above, and
+drafted this documentation, which I edited.
 
 ## License
 
